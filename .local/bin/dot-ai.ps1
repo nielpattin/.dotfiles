@@ -30,8 +30,17 @@ Do the following exactly, DON'T FUCKING RUN cd commands or change directories, j
 Rules:
 - Follow Conventional Commits (type(optional-scope): short summary)
 - Keep summary concise and specific
-- Do not add untracked files
+- Do not add untracked files with git -force, only stage modified and deleted files with git add -u
 - If there is nothing to commit, report that and stop without error
+- After done, I want this response format FOR EXAMPLE:
+
+Summary of changes:
+- Add description of change 1
+Conventional Commit messages:
+- <type(optional-scope): short summary>
+Command run:
+- git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" commit -
+
 "@
 
 if ($ExtraInstructions.Count -gt 0) {
