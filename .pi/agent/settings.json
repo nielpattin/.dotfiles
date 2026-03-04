@@ -49,7 +49,8 @@
     "+extensions\\image-preview\\index.ts",
     "-extensions\\working-vibes\\index.ts",
     "+extensions\\figma-start.ts",
-    "+extensions\\powerline-footer\\index.ts"
+    "+extensions\\powerline-footer\\index.ts",
+    "+extensions\\tab-status\\index.ts"
   ],
   "workingVibeModel": "openai-codex//gpt-5.3-codex",
   "workingVibe": "game-dev",

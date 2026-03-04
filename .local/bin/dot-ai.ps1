@@ -35,11 +35,11 @@ Rules:
 - After done, I want this response format FOR EXAMPLE:
 
 Summary of changes:
-- Add description of change 1
+- 
 Conventional Commit messages:
-- <type(optional-scope): short summary>
+- 
 Command run:
-- git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" commit -
+- 
 
 "@
 
