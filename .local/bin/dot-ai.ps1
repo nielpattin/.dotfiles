@@ -16,16 +16,16 @@ Repository setup:
 - GIT_WORK_TREE: $HOME
 
 Do the following exactly, DON'T FUCKING RUN cd commands or change directories, just use the --git-dir and --work-tree options with git commands:
-1) Run: git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" status --short --branch
-2) Run: git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" add -u
-3) Run: git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" status --short
+1) Run: git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" status --short --branch
+2) Run: git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" add -u
+3) Run: git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" status --short
 4) If there are no staged changes, report "Nothing to commit" and stop without error
 5) Use these commands to analyze the staged changes before writing commit messages:
-   - git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" diff --staged --name-status
-   - git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" diff --staged
-   - git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" log -n 20 --oneline
+   - git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" diff --staged --name-status
+   - git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" diff --staged
+   - git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" log -n 20 --oneline
 6) Split changes into multiple logical commits if needed
-7) For each commit, write a Conventional Commit message and run: git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" commit -m "<your-conventional-commit-message>"
+7) For each commit, write a Conventional Commit message and run: git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" commit -m "<your-conventional-commit-message>"
 
 Rules:
 - Follow Conventional Commits (type(optional-scope): short summary)
@@ -39,7 +39,7 @@ Summary of changes:
 Conventional Commit messages:
 - <type(optional-scope): short summary>
 Command run:
-- git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" commit -
+- git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" commit -
 
 "@
 
