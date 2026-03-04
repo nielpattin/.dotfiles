@@ -1,0 +1,48 @@
+[user]
+	name = nielpattin
+	email = 66520542+nielpattin@users.noreply.github.com
+	signingkey = ~/.ssh/id_ed25519_new
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+[credential "helperselector"]
+	selected = manager
+[core]
+	autocrlf = false
+	editor = code --wait
+	excludesfile = ~/.gitignore
+	longpaths = true
+[commit]
+	gpgsign = true
+[gpg]
+	format = ssh
+[gpg "ssh"]
+	allowedSignersFile = ~/.ssh/allowed_signers
+# [includeIf "gitdir:~/project_fake/"]
+# 	path = ~/.gitconfig.fake
+
+[alias]
+	st = status -s # short status
+	sta = status
+	conf = config --global --edit
+	co = checkout
+	br = branch
+	bra = branch -a
+	ci = commit
+	ciam = commit -a --amend --no-edit
+	amend = commit -a --amend --no-edit
+	cod = checkout . # discard local changes in your working directory
+	rh = reset HEAD # reset to HEAD the next agrument is the commit hash
+	aa = add -A
+	cdf = clean -df
+	pr = pull --rebase
+	gl = log --graph --oneline --decorate --all
+	alias = config --get-regexp alias.
+[init]
+	defaultBranch = main
+[credential "https://github.com"]
+	helper = manager
+[credential "https://gist.github.com"]
+	helper = manager

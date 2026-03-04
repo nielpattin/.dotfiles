@@ -1,0 +1,85 @@
+{
+  "lastChangelogVersion": "0.55.4",
+  "hideThinkingBlock": false,
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.3-codex",
+  "editorPaddingX": 0,
+  "defaultThinkingLevel": "medium",
+  "theme": "catppuccin-mocha",
+  "transport": "sse",
+  "packages": [
+    {
+      "source": "git:github.com/nielpattin/pi-sub",
+      "extensions": [
+        "+packages\\sub-core/index.ts",
+        "+packages\\sub-bar/index.ts"
+      ]
+    },
+    {
+      "source": "git:github.com/nicobailon/pi-subagents",
+      "extensions": [
+        "-index.ts",
+        "-notify.ts"
+      ]
+    },
+    {
+      "source": "https://github.com/nicobailon/visual-explainer",
+      "skills": [
+        "-CHANGELOG.md",
+        "-README.md"
+      ]
+    }
+  ],
+  "skills": [
+    "-..\\..\\.agents\\skills\\prd\\SKILL.md",
+    "-..\\..\\.agents\\skills\\prd-task\\SKILL.md",
+    "-..\\..\\.agents\\skills\\playwright-expert\\SKILL.md",
+    "-skills\\web-search\\SKILL.md",
+    "-skills\\visit-webpage\\SKILL.md",
+    "-..\\..\\.agents\\skills\\create-rule\\SKILL.md",
+    "+..\\..\\.agents\\skills\\git-expert\\SKILL.md",
+    "-..\\..\\.agents\\skills\\landing-page\\SKILL.md",
+    "-..\\..\\.agents\\skills\\meme-factory\\SKILL.md",
+    "-..\\..\\.agents\\skills\\roadmap\\SKILL.md",
+    "-..\\..\\.agents\\skills\\commit-message-generator\\SKILL.md"
+  ],
+  "extensions": [
+    "-extensions\\session-query\\index.ts",
+    "-extensions\\modes\\index.ts",
+    "+extensions\\image-preview\\index.ts",
+    "-extensions\\working-vibes\\index.ts",
+    "+extensions\\figma-start.ts",
+    "+extensions\\powerline-footer\\index.ts"
+  ],
+  "workingVibeModel": "openai-codex//gpt-5.3-codex",
+  "workingVibe": "game-dev",
+  "compaction": {
+    "enabled": false
+  },
+  "images": {
+    "autoResize": true
+  },
+  "showHardwareCursor": false,
+  "doubleEscapeAction": "tree",
+  "workingVibeMode": "file",
+  "workingVibeRefreshInterval": 5,
+  "terminal": {
+    "clearOnShrink": false
+  },
+  "nodeRestore": {
+    "silentCheckpoints": false
+  },
+  "themes": [
+    "-themes\\dracula.json",
+    "-themes\\everforest.json",
+    "-themes\\gruvbox.json",
+    "-themes\\midnight-ocean.json",
+    "-themes\\nord.json",
+    "-themes\\ocean-breeze.json",
+    "-themes\\rose-pine.json",
+    "-themes\\synthwave.json",
+    "+themes\\tokyo-night.json"
+  ],
+  "followUpMode": "all",
+  "steeringMode": "all"
+}
