@@ -15,7 +15,7 @@ Repository setup:
 - GIT_DIR: $HOME/.dotfiles
 - GIT_WORK_TREE: $HOME
 
-Do the following exactly:
+Do the following exactly, DON'T FUCKING RUN cd commands or change directories, just use the --git-dir and --work-tree options with git commands:
 1) Run: git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" status --short --branch
 2) Run: git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" add -u
 3) Run: git --git-dir="$HOME\.dotfiles" --work-tree="$HOME" status --short
