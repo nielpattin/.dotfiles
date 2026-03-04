@@ -192,11 +192,9 @@ $env:OPENCODE_EXPERIMENTAL_MARKDOWN = "1"
 # Set-Alias -Name oc -Value ocb
 Set-Alias -Name oc -Value opencode.cmd
 
-function gbash { & "C:\Program Files\Git\bin\bash.exe" @Args }
-
 # po = local pi build (repo dist)
 function p {
-    & node "$HOME/repo/public/pi-mono/packages/coding-agent/dist/cli.js" @args
+    & node "$HOME/repo/pi-mono/packages/coding-agent/dist/cli.js" @args
 }
 
 # ocb = local build binary
@@ -219,6 +217,10 @@ function oc-dev {
     finally {
         Pop-Location
     }
+}
+
+function bash {
+     & "C:\Program Files\Git\bin\bash.exe" @args
 }
 
 # Proxy Utilities
