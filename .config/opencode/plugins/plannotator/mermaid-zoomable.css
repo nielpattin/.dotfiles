@@ -1,0 +1,299 @@
+/* Mermaid Zoomable Component Styles */
+
+.mermaid-zoomable-wrapper {
+  /* Container optimization */
+  contain: layout style paint;
+  isolation: isolate;
+  
+  /* Hardware acceleration */
+  transform: translateZ(0);
+  will-change: transform;
+  
+  /* Ensure proper stacking context */
+  position: relative;
+  z-index: 1;
+  
+  /* Smooth transitions */
+  transition: all 0.2s ease-out;
+}
+
+.mermaid-zoomable-wrapper:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Dark mode support */
+.mermaid-zoomable-wrapper[data-theme="dark"] {
+  background-color: #1f2937;
+  border-color: #374151;
+}
+
+.mermaid-controls {
+  /* Performance optimizations */
+  will-change: transform, opacity;
+  contain: layout style paint;
+  
+  /* Hardware acceleration */
+  transform: translateZ(0);
+  
+  /* Smooth transitions */
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.mermaid-control {
+  /* Individual button optimization */
+  will-change: transform, background-color;
+  contain: layout style paint;
+  
+  /* Hardware acceleration */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  
+  /* Smooth transitions */
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Prevent text selection during interaction */
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.mermaid-control:hover:not(:disabled) {
+  /* Subtle scale effect for better feedback */
+  transform: translateZ(0) scale(1.05);
+}
+
+.mermaid-control:active:not(:disabled) {
+  transform: translateZ(0) scale(0.95);
+}
+
+.mermaid-control:disabled {
+  opacity: 0.5;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+
+/* Mermaid SVG container optimization */
+.mermaid-diagram-container {
+  /* Critical for smooth panning/zooming */
+  contain: layout style paint;
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  
+  /* Prevent text artifacts during transform */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  
+  /* Ensure smooth rendering */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+.mermaid-diagram-container svg {
+  /* SVG-specific optimizations */
+  max-width: none !important; /* Override Mermaid's constraint */
+  shape-rendering: geometricPrecision;
+  text-rendering: geometricPrecision;
+  
+  /* Ensure proper rendering during transforms */
+  transform-origin: 0 0;
+  will-change: transform;
+  
+  /* Prevent subpixel rendering issues */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Loading state animation */
+.mermaid-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.mermaid-loading::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* Error state styling */
+.mermaid-error {
+  /* Add subtle animation for errors */
+  animation: error-fade-in 0.3s ease-out;
+}
+
+@keyframes error-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  .mermaid-control {
+    /* Larger touch targets */
+    width: 2.5rem !important;
+    height: 2.5rem !important;
+    font-size: 1.25rem !important;
+    
+    /* Prevent accidental zoom */
+    touch-action: manipulation;
+  }
+  
+  .mermaid-controls {
+    /* More space between touch targets */
+    gap: 0.5rem !important;
+    padding: 0.5rem !important;
+  }
+}
+
+/* High DPI display optimizations */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .mermaid-diagram-container svg {
+    /* Crisper rendering on high DPI */
+    image-rendering: -webkit-optimize-contrast;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .mermaid-zoomable-wrapper,
+  .mermaid-controls,
+  .mermaid-control,
+  .mermaid-loading::before,
+  .mermaid-error {
+    animation: none !important;
+    transition: none !important;
+  }
+  
+  .mermaid-control:hover:not(:disabled) {
+    transform: none !important;
+  }
+}
+
+/* Focus management for accessibility */
+.mermaid-control:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.mermaid-control:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Dark mode specific optimizations */
+@media (prefers-color-scheme: dark) {
+  .mermaid-zoomable-wrapper:not([data-theme="light"]) {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+  
+  .mermaid-controls {
+    background: rgba(31, 41, 55, 0.95) !important;
+    backdrop-filter: blur(12px);
+  }
+  
+  .mermaid-control {
+    color: #9ca3af !important;
+  }
+  
+  .mermaid-control:hover:not(:disabled) {
+    background: rgba(55, 65, 81, 0.8) !important;
+    color: #60a5fa !important;
+  }
+}
+
+/* Print styles */
+@media print {
+  .mermaid-controls {
+    display: none !important;
+  }
+  
+  .mermaid-zoomable-wrapper {
+    border: none !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+  
+  .mermaid-diagram-container svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+}
+
+/* Performance monitoring class */
+.mermaid-performance-monitor {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  font-family: monospace;
+  font-size: 0.75rem;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+/* Large diagram optimizations */
+.mermaid-zoomable-wrapper.large-diagram {
+  /* Optimize for complex diagrams */
+  contain: strict;
+  
+  /* Increase hit area for controls */
+  --control-scale: 1.2;
+}
+
+.mermaid-zoomable-wrapper.large-diagram .mermaid-controls {
+  transform: translateZ(0) scale(var(--control-scale));
+  transform-origin: top right;
+}
+
+/* Mobile-specific optimizations */
+@media (max-width: 768px) {
+  .mermaid-zoomable-wrapper {
+    /* Ensure proper mobile rendering */
+    -webkit-overflow-scrolling: touch;
+    overflow-scrolling: touch;
+  }
+  
+  .mermaid-controls {
+    /* Stack controls vertically on small screens */
+    flex-direction: column;
+    top: 0.25rem;
+    right: 0.25rem;
+    padding: 0.125rem;
+  }
+  
+  .mermaid-control {
+    width: 1.75rem !important;
+    height: 1.75rem !important;
+    font-size: 0.875rem !important;
+  }
+}

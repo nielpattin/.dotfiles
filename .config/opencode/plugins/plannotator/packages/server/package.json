@@ -1,0 +1,22 @@
+{
+  "name": "@plannotator/server",
+  "version": "0.6.6",
+  "private": true,
+  "description": "Shared server implementation for Plannotator plugins",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./review": "./review.ts",
+    "./remote": "./remote.ts",
+    "./browser": "./browser.ts",
+    "./storage": "./storage.ts",
+    "./git": "./git.ts"
+  },
+  "files": [
+    "*.ts"
+  ],
+  "peerDependencies": {
+    "bun": ">=1.0.0"
+  }
+}

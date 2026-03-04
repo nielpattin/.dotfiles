@@ -1,0 +1,29 @@
+{
+  "name": "plannotator",
+  "version": "0.6.6",
+  "private": true,
+  "description": "Interactive Plan Review for OpenCode - annotate plans visually, automatically send feedback",
+  "author": "backnotprop",
+  "license": "BSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/backnotprop/plannotator.git"
+  },
+  "homepage": "https://github.com/backnotprop/plannotator",
+  "bugs": {
+    "url": "https://github.com/backnotprop/plannotator/issues"
+  },
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:annotator": "bun run --cwd apps/annotator dev",
+    "dev:review": "bun run --cwd apps/review dev",
+    "build:annotator": "bun run --cwd apps/annotator build",
+    "build:opencode": "bun run --cwd apps/opencode-plugin build",
+    "build:review": "bun run --cwd apps/review build",
+    "build": "bun run build:review && bun run build:annotator && bun run build:opencode",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@pierre/diffs": "^1.0.4"
+  }
+}

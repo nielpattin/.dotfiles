@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "currentMode": "smart",
+  "modes": {
+    "rush": {
+      "provider": "openai-codex",
+      "modelId": "gpt-5.3-codex",
+      "thinkingLevel": "minimal",
+      "color": "red"
+    },
+    "smart": {
+      "provider": "openai-codex",
+      "modelId": "gpt-5.3-codex",
+      "thinkingLevel": "medium",
+      "color": "green"
+    },
+    "deep": {
+      "provider": "openai-codex",
+      "modelId": "gpt-5.3-codex",
+      "thinkingLevel": "high",
+      "color": "purple"
+    }
+  }
+}

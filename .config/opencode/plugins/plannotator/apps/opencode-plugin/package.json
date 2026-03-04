@@ -1,0 +1,46 @@
+{
+  "name": "@plannotator/opencode",
+  "version": "0.6.6",
+  "description": "Plannotator plugin for OpenCode - interactive plan review with visual annotation",
+  "author": "backnotprop",
+  "license": "BSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/backnotprop/plannotator.git",
+    "directory": "apps/opencode-plugin"
+  },
+  "homepage": "https://github.com/backnotprop/plannotator",
+  "bugs": {
+    "url": "https://github.com/backnotprop/plannotator/issues"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "plannotator",
+    "plan-review",
+    "ai-agent",
+    "coding-agent"
+  ],
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "commands",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "mkdir -p dist && cp ../annotator/dist/index.html ./dist/plannotator.html && cp ../review/dist/index.html ./dist/review-editor.html && bun build index.ts --outfile dist/index.js --target bun --external @opencode-ai/plugin",
+    "postinstall": "mkdir -p ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/command && cp ./commands/*.md ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/command/ 2>/dev/null || true",
+    "prepublishOnly": "bun run build"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.1.25",
+    "@plannotator/server": "workspace:*"
+  },
+  "peerDependencies": {
+    "bun": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.6",
+    "@types/node": "^25.0.9"
+  }
+}

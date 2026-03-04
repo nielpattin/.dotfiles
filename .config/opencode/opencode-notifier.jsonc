@@ -1,0 +1,34 @@
+{
+  "sound": true,
+  "notification": false,
+  "volume": 0.5,
+  "timeout": 2, // Linux only
+  "showProjectName": true,
+  "command": {
+    "enabled": false,
+    "path": "/path/to/command",
+    "args": ["--event", "{event}", "--message", "{message}"],
+    "minDuration": 0
+  },
+  "events": {
+    "permission": { "sound": true, "notification": true },
+    "complete": { "sound": true, "notification": true },
+    "subagent_complete": { "sound": false, "notification": false },
+    "error": { "sound": true, "notification": true },
+    "question": { "sound": true, "notification": true }
+  },
+  "messages": {
+    "permission": "Session needs permission",
+    "complete": "Session has finished",
+    "subagent_complete": "Subagent task completed",
+    "error": "Session encountered an error",
+    "question": "Session has a question"
+  },
+  "sounds": {
+    "permission": "~/.config/opencode/assets/sounds_gow_active_reload.mp3",
+    "complete": "~/.config/opencode/assets/sounds_gow_active_reload.mp3",
+    "subagent_complete": "~/.config/opencode/assets/sounds_gow_active_reload.mp3",
+    "error": "~/.config/opencode/assets/sounds_gow_active_reload.mp3",
+    "question": "~/.config/opencode/assets/sounds_gow_active_reload.mp3"
+  }
+}

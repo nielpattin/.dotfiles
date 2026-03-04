@@ -1,0 +1,23 @@
+{
+  "name": "exsolutor",
+  "version": "0.1.0",
+  "description": "Multi-agent execution system with specialized subagents for deep reasoning and exploration",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "dev": "tsc --watch"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "strip-json-comments": "^5.0.3"
+  }
+}

@@ -1,0 +1,171 @@
+{
+	"$schema": "https://opencode.ai/config.json",
+	"autoupdate": false,
+	"share": "manual",
+	"default_agent": "smart",
+	"small_model": "github-copilot/gpt-5-mini",
+	"keybinds": {
+		"session_child_cycle": "ctrl+right",
+		"session_child_cycle_reverse": "ctrl+left",
+		"app_exit": "ctrl+d",
+		// "input_clear": "ctrl+l",
+		"session_parent": "ctrl+up",
+		"model_cycle_favorite": "<leader>d"
+	},
+	"plugin": [
+		"./plugins/opencode-usage-plugin",
+		"./plugins/exsolutor",
+		"./plugins/opencode-session-manager",
+		"./plugins/opencode-notifier",
+		// "file:///c:/Users/niel/.config/opencode/hooks/openslimedit/src/index.ts", 
+		// "file:///c:/Users/niel/.config/opencode/plugins/polaris-opencode/src/index.ts",
+		// "opencode-snippets@1.6.0",
+		// "@howaboua/opencode-tps-counter@latest",
+		// "./plugin/plannotator/apps/opencode-plugin",
+		"opencode-pty@latest",
+		// "@tarquinen/opencode-dcp@beta",
+		// "./plugins/polaris-opencode",
+		// "polaris-opencode@1.1.0",
+		// "opencode-mermaid-formatter@0.1.0"
+	],
+	"permission": {
+		"*": "allow",
+		"todoread": "allow",
+		"todowrite": "allow",
+		"doom_loop": "allow",
+		"question": "allow",
+		"bash": {
+			"*": "allow",
+			"git push *": "ask",
+			"git restore *": "ask",
+			"git merge *": "ask",
+			"git rebase *": "ask",
+			"git reset *": "ask",
+			"git rm *": "ask",
+			"git mv *": "ask",
+			"git tag *": "ask",
+			"git clean *": "ask",
+			"rm *": "ask",
+			"kill *": "ask",
+			"killall *": "ask",
+			"pkill *": "ask",
+			"* install *": "ask",
+			"* i *": "ask",
+			"* ci*": "ask",
+			"chmod +x *": "ask",
+			"yay -S *": "ask",
+			"sudo *": "ask"
+		},
+		"external_directory": "allow",
+		// "tavily_tavily_search": "deny",
+		// "tavily_tavily_research": "deny",
+		// "websearch": "allow",
+		// "webfetch": "allow",
+		"websearch": "deny",
+		"brave-search_brave_local_search": "deny",
+		"brave-search_brave_video_search": "deny",
+		"brave-search_brave_image_search": "deny",
+		"brave-search_brave_news_search": "deny",
+	},
+	"experimental": {
+		"openTelemetry": false,
+		"continue_loop_on_deny": true,
+	},
+	"agent": {
+		"build": {
+			"hidden": true
+		},
+		"plan": {
+			"hidden": true
+		},
+		"general": {
+			"mode": "subagent",
+			"model": "llm-proxy/cli_gemini-3-flash",
+			"disable": true,
+		},
+		"compaction": {
+			"model": "llm-proxy/cli_gemini-3-flash",
+		},
+		"triage": {
+			"disable": true,
+		},
+		"docs": {
+			"disable": true,
+		},
+		"explore": {
+			"disable": true,
+		},
+	},
+	"mcp": {
+		"overseer": {
+			"type": "local",
+			"command": [
+				"os",
+				"mcp"
+			],
+			"enabled": true,
+		},
+		"context7": {
+			"type": "local",
+			"timeout": 30000,
+			"command": [
+				"npx",
+				"-y",
+				"@upstash/context7-mcp",
+				"--api-key",
+				"{env:CONTEXT7_API_KEY}",
+			],
+			"enabled": false,
+		},
+		"tavily": {
+			"type": "remote",
+			"url": "https://mcp.tavily.com/mcp/?tavilyApiKey={env:TAVILY_API_KEY}",
+			"enabled": false,
+		},
+		"exa": {
+			"type": "remote",
+			"url": "https://mcp.exa.ai/mcp",
+			"enabled": false,
+		},
+		"brave-search": {
+			"enabled": true,
+			"type": "local",
+			"command": [
+				"npx",
+				"-y",
+				"@brave/brave-search-mcp-server",
+				"--transport",
+				"stdio"
+			],
+			"environment": {
+				"BRAVE_API_KEY": "{env:BRAVE_API_KEY}"
+			},
+		},
+		"excalidraw": {
+			"enabled": false,
+			"type": "local",
+			"command": [
+				"node",
+				"C:/Users/niel/repo/public/mcp_excalidraw/dist/index.js"
+			],
+			"environment": {
+				"EXPRESS_SERVER_URL": "http://localhost:3000",
+				"ENABLE_CANVAS_SYNC": "true"
+			}
+		}
+	},
+	// "enabled_providers": [
+	//   "llm-proxy",
+	//   "opencode",
+	//   "github-copilot",
+	//   "chutes"
+	// ],
+	"disabled_providers": [
+		"zai-coding-plan",
+		"io-intelligence",
+		// "openai",
+		"github-copilot-enterprise",
+		"github-models",
+		"nvidia"
+	],
+}

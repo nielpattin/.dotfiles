@@ -1,0 +1,209 @@
+{
+	"$schema": "https://opencode.ai/config.json",
+	"provider": {
+		"llm-proxy": {
+			"npm": "@ai-sdk/openai-compatible",
+			"name": "Prox",
+			"options": {
+				"baseURL": "http://llm-proxy.local:8989/v1",
+				"apiKey": "{env:PROXY_API_KEY}"
+			},
+			"models": {
+				"gemini-3-flash": {
+					"id": "antigravity/gemini-3-flash",
+					"name": "Gemini 3 Flash (ANT)",
+					"release_date": "2025-12-17",
+					"attachment": true,
+					"tool_call": true,
+					"family": "gemini-flash",
+					"limit": {
+						"context": 1048576,
+						"output": 65536,
+					},
+					"reasoning": true,
+					"cost": {
+						"input": 0.5,
+						"output": 3,
+						"cache_read": 0.05,
+					},
+					"modalities": {
+						"input": [
+							"image",
+							"text"
+						],
+						"output": [
+							"text"
+						],
+					},
+				},
+				"gemini-3-pro": {
+					"id": "antigravity/gemini-3-pro-preview",
+					"name": "Gemini 3 Pro (ANT)",
+					"release_date": "2025-11-18",
+					"family": "gemini-pro",
+					"limit": {
+						"context": 1048576,
+						"output": 64000,
+					},
+					"reasoning": true,
+					"options": {
+						"reasoningEffort": "high",
+					},
+					"cost": {
+						"input": 2,
+						"output": 12,
+						"cache_read": 0.2,
+					},
+					"modalities": {
+						"input": [
+							"image",
+							"text"
+						],
+						"output": [
+							"text"
+						],
+					},
+				},
+				"claude-opus-4-6": {
+					"id": "antigravity/claude-opus-4-6-thinking",
+					"name": "Claude Opus 4.6 (ANT)",
+					"release_date": "2026-02-05",
+					"family": "claude-opus",
+					"limit": {
+						"context": 200000,
+						"output": 64000,
+					},
+					"reasoning": true,
+					"cost": {
+						"input": 5,
+						"output": 25,
+						"cache_read": 0.5,
+						"cache_write": 6.25
+					},
+					"modalities": {
+						"input": [
+							"image",
+							"text"
+						],
+						"output": [
+							"text"
+						],
+					},
+				},
+				"cli_gemini-3-pro": {
+					"id": "gemini_cli/gemini-3-pro-preview",
+					"name": "CLI Gemini 3 Pro",
+					"release_date": "2025-11-18",
+					"family": "gemini-pro",
+					"limit": {
+						"context": 1048576,
+						"output": 64000,
+					},
+					"reasoning": true,
+					"cost": {
+						"input": 2,
+						"output": 12,
+						"cache_read": 0.2,
+					},
+					"modalities": {
+						"input": [
+							"image",
+							"text"
+						],
+						"output": [
+							"text"
+						],
+					},
+				},
+				"cli_gemini-3-flash": {
+					"id": "gemini_cli/gemini-3-flash-preview",
+					"name": "CLI Gemini 3 Flash",
+					"release_date": "2025-12-17",
+					"family": "gemini-flash",
+					"limit": {
+						"context": 1048576,
+						"output": 65536,
+					},
+					"reasoning": true,
+					"cost": {
+						"input": 0.5,
+						"output": 3,
+						"cache_read": 0.05,
+					},
+					"modalities": {
+						"input": [
+							"image",
+							"text"
+						],
+						"output": [
+							"text"
+						],
+					},
+				},
+				// "iflow-glm-4.7": {
+				// 	"id": "iflow/glm-4.7",
+				// 	"name": "GLM 4.7 (iFlow)",
+				// 	"reasoning": true,
+				// 	"interleaved": true,
+				// 	"limit": {
+				// 		"context": 200000,
+				// 		"output": 128000
+				// 	}
+				// },
+			},
+		},
+		"kilo": {
+			"npm": "@openrouter/ai-sdk-provider",
+			"name": "Kilo",
+			"options": {
+				"baseURL": "https://api.kilo.ai/api/openrouter/",
+				"apiKey": "{env:OC_KILO_API_KEY}",
+			},
+			"models": {
+				"z-ai/glm5:free": {
+					"id": "z-ai/glm-5:free",
+					"name": "GLM5",
+					"limit": {
+						"context": 202800,
+						"output": 128000
+					},
+					"modalities": {
+						"input": [
+							"text"
+						],
+						"output": [
+							"text"
+						],
+					},
+				},
+			},
+		},
+		"modal": {
+			"npm": "@ai-sdk/openai-compatible",
+			"name": "Modal",
+			"options": {
+				"baseURL": "https://api.us-west-2.modal.direct/v1",
+				"apiKey": "{env:OC_MODAL_API_KEY}",
+			},
+			"models": {
+				"zai-org/GLM-5-FP8": {
+					"name": "GLM-5",
+					"limit": {
+						"context": 200000,
+						"output": 128000
+					},
+					"modalities": {
+						"input": [
+							"text",
+							"image",
+							"pdf"
+						],
+						"output": [
+							"text"
+						],
+					},
+				},
+			},
+		},
+	},
+}

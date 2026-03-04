@@ -1,0 +1,17 @@
+[settings]
+activate_aggressive = false
+
+[tools]
+"aqua:jesseduffield/lazygit" = "latest"
+bun = "latest"
+gh = "latest"
+starship = "latest"
+go = "latest"
+mitmproxy = "latest"
+node = "latest"
+python = "latest"
+uv = "latest"
+zoxide = "latest"
+pnpm = "latest"
+pandoc = "latest"
+opencode = "latest"

@@ -1,0 +1,52 @@
+{
+  "providers": {
+    "llm-api-key-proxy": {
+      "baseUrl": "http://127.0.0.1:8989/v1",
+      "api": "openai-completions",
+      "apiKey": "PROXY_API_KEY",
+      "authHeader": true,
+      "models": [
+        {
+          "id": "gemini_cli/gemini-3.1-pro-preview",
+          "name": "Gemini 3.1 Pro Preview (CLI)",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 1048576,
+          "maxTokens": 65536,
+          "cost": {
+            "input": 2,
+            "output": 12,
+            "cacheRead": 0.2,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsDeveloperRole": false
+          }
+        },
+        {
+          "id": "gemini_cli/gemini-3-flash-preview",
+          "name": "Gemini 3 Flash Preview (CLI)",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 1048576,
+          "maxTokens": 65536,
+          "cost": {
+            "input": 0.5,
+            "output": 3,
+            "cacheRead": 0.05,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsDeveloperRole": false
+          }
+        }
+      ]
+    }
+  }
+}
