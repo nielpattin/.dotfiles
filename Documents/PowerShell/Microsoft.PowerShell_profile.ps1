@@ -46,7 +46,7 @@ function dotfiles-ui {
     $env:GIT_DIR = "$HOME\.dotfiles"
     $env:GIT_WORK_TREE = "$HOME"
     try {
-        lazygit
+        & "$env:LOCALAPPDATA\Fork\current\Fork.exe" "$HOME"
     }
     finally {
         Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue
