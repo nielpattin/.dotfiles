@@ -22,6 +22,17 @@ export default function toolsExtension(pi: ExtensionAPI) {
 	// Track enabled tools
 	let enabledTools: Set<string> = new Set();
 	let allTools: ToolInfo[] = [];
+	const defaultBuiltInTools = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+
+	function withDefaultBuiltins(tools: string[], allToolNames: string[]): string[] {
+		const next = new Set(tools.filter((tool) => allToolNames.includes(tool)));
+		for (const tool of defaultBuiltInTools) {
+			if (allToolNames.includes(tool)) {
+				next.add(tool);
+			}
+		}
+		return Array.from(next);
+	}
 
 	// Persist current state
 	function persistState() {
@@ -38,6 +49,7 @@ export default function toolsExtension(pi: ExtensionAPI) {
 	// Find the last tools-config entry in the current branch
 	function restoreFromBranch(ctx: ExtensionContext) {
 		allTools = pi.getAllTools();
+		const allToolNames = allTools.map((t) => t.name);
 
 		// Get entries in current branch only
 		const branchEntries = ctx.sessionManager.getBranch();
@@ -52,15 +64,9 @@ export default function toolsExtension(pi: ExtensionAPI) {
 			}
 		}
 
-		if (savedTools) {
-			// Restore saved tool selection (filter to only tools that still exist)
-			const allToolNames = allTools.map((t) => t.name);
-			enabledTools = new Set(savedTools.filter((t: string) => allToolNames.includes(t)));
-			applyTools();
-		} else {
-			// No saved state - sync with currently active tools
-			enabledTools = new Set(pi.getActiveTools());
-		}
+		const baseTools = (savedTools ?? pi.getActiveTools()).filter((tool: string) => allToolNames.includes(tool));
+		enabledTools = new Set(withDefaultBuiltins(baseTools, allToolNames));
+		applyTools();
 	}
 
 	// Register /tools command

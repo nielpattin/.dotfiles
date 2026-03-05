@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.55.4",
+  "lastChangelogVersion": "0.56.1",
   "hideThinkingBlock": false,
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.3-codex",
@@ -28,7 +28,8 @@
         "-CHANGELOG.md",
         "-README.md"
       ]
-    }
+    },
+    "npm:pi-mcporter"
   ],
   "skills": [
     "-..\\..\\.agents\\skills\\prd\\SKILL.md",
