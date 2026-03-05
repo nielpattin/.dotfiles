@@ -43,14 +43,16 @@ function dot {
 }
 
 function dotfiles-ui {
-    $env:GIT_DIR = "$HOME\.dotfiles"
-    $env:GIT_WORK_TREE = "$HOME"
-    try {
-        & "$env:LOCALAPPDATA\Fork\current\Fork.exe" "$HOME"
+    $fork = "$env:LOCALAPPDATA\Fork\current\Fork.exe"
+    if (-not (Test-Path $fork)) {
+        Write-Error "Fork not found: $fork"
+        return
     }
-    finally {
-        Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue
-        Remove-Item Env:GIT_WORK_TREE -ErrorAction SilentlyContinue
+
+    Start-Process -FilePath $fork -ArgumentList "$HOME" -Environment @{
+        GIT_DIR       = "$HOME\.dotfiles"
+        GIT_WORK_TREE = "$HOME"
+        GIT_OPTIONAL_LOCKS = "0"
     }
 }
 

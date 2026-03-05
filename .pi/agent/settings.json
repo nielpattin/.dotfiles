@@ -4,7 +4,7 @@
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.3-codex",
   "editorPaddingX": 0,
-  "defaultThinkingLevel": "xhigh",
+  "defaultThinkingLevel": "high",
   "theme": "catppuccin-mocha",
   "transport": "sse",
   "packages": [
