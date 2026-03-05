@@ -1,8 +1,4 @@
 # ==============================================================================
-# OPTIMIZED PowerShell Profile (Stable)
-# ============================================================================== 
-
-# ==============================================================================
 # Environment Setup (instant)
 # ==============================================================================
 $env:TERM = "xterm-256color"
@@ -42,7 +38,7 @@ function dot {
     git --git-dir=$HOME\.dotfiles --work-tree=$HOME @Args
 }
 
-function dotfiles-ui {
+function dot-ui {
     $fork = "$env:LOCALAPPDATA\Fork\current\Fork.exe"
     if (-not (Test-Path $fork)) {
         Write-Error "Fork not found: $fork"
@@ -113,25 +109,28 @@ function trash($path) {
 function which($name) { & where.exe $name }
 
 # ==============================================================================
-# PSReadLine (fast)
+# PSReadLine
 # ==============================================================================
 $PSReadLineOptions = @{
     EditMode = 'Windows'
     HistoryNoDuplicates = $true
     HistorySearchCursorMovesToEnd = $true
+    HistorySaveStyle = 'SaveIncrementally'
+    MaximumHistoryCount = 50000
     Colors = @{
         Command = '#87CEEB'; Parameter = '#98FB98'; Operator = '#FFB6C1'
         Variable = '#DDA0DD'; String = '#FFDAB9'; Number = '#B0E0E6'
         Type = '#F0E68C'; Comment = '#D3D3D3'; Keyword = '#8367c7'; Error = '#FF6347'
     }
     PredictionSource = 'History'
-    PredictionViewStyle = 'ListView'
+    PredictionViewStyle = 'InlineView'
     BellStyle = 'None'
 }
 if ([Environment]::UserInteractive -and -not [Console]::IsOutputRedirected) {
     Set-PSReadLineOption @PSReadLineOptions
     Set-PSReadLineKeyHandler -Key UpArrow -Function HistorySearchBackward
     Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
+    Set-PSReadLineKeyHandler -Chord 'Ctrl+Spacebar' -Function SwitchPredictionView
     # Custom Tab handler: Complete + convert backslashes to forward slashes immediately
     Set-PSReadLineKeyHandler -Key Tab -ScriptBlock {
         # Use Complete (non-menu) for simpler flow, then replace slashes
@@ -169,14 +168,6 @@ Set-PSReadLineOption -AddToHistoryHandler {
     $sensitive = @('password', 'secret', 'token', 'apikey', 'connectionstring')
     $hasSensitive = $sensitive | Where-Object { $line -match $_ }
     return ($null -eq $hasSensitive)
-}
-
-# ==============================================================================
-# Global Secret Environment Variables
-# ==============================================================================
-$secretsFile = "$HOME/Documents/PowerShell/secrets.ps1"
-if (Test-Path $secretsFile) {
-    . $secretsFile
 }
 
 # ==============================================================================
