@@ -1,5 +1,30 @@
-!AGENTS.md
-!opencode.jsonc
-!.opencode/
-!ARCHITECTURE.md
-!*.md
+# Conservative ignores for faster fd/rg scans in $HOME
+# Keep this minimal to avoid hiding useful project files.
+AppData/
+.cache/
+.pnpm-store/
+npm-cache/
+**/node_modules/
+**/.cache/**
+**/cache/**
+.cargo/
+.lmstudio/
+.vscode/
+.dotnet/
+
+# --- pi @mention noise reduction (home directory) ---
+
+# Vendor/dependency spam
+**/vendor/
+
+# Tool/vendor content that floods README hits
+.agents/skills/
+
+# Optional: suppress README noise from hidden tool dirs
+**/.*/**/README
+**/.*/**/README.md
+
+# Keep important local docs visible
+!README.md
+!.config/**/README.md
+!.agent/**/README.md

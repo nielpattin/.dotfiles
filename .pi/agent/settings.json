@@ -4,7 +4,7 @@
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.3-codex",
   "editorPaddingX": 0,
-  "defaultThinkingLevel": "medium",
+  "defaultThinkingLevel": "xhigh",
   "theme": "catppuccin-mocha",
   "transport": "sse",
   "packages": [
@@ -55,7 +55,7 @@
   "workingVibeModel": "openai-codex//gpt-5.3-codex",
   "workingVibe": "game-dev",
   "compaction": {
-    "enabled": false
+    "enabled": true
   },
   "images": {
     "autoResize": true
@@ -82,5 +82,6 @@
     "+themes\\tokyo-night.json"
   ],
   "followUpMode": "all",
-  "steeringMode": "all"
+  "steeringMode": "all",
+  "autocompleteMaxVisible": 10
 }
