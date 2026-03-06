@@ -1,8 +1,6 @@
-# AGENTS.md in Dotfiles
-
 Guidance for coding agents working in this home dotfiles setup.
 
-## Repository model
+Repository model
 
 - This is a **bare dotfiles repo**.
 - Git metadata lives in: `$HOME/.dotfiles`
@@ -12,7 +10,7 @@ Guidance for coding agents working in this home dotfiles setup.
 git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" <command>
 ```
 
-## Safety rules
+Safety rules
 
 - Do not run destructive Git commands unless explicitly requested.
 - Review changes before commit.
@@ -20,7 +18,7 @@ git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" <command>
 - Keep commits focused and clearly scoped.
 - Must use -f flag to add files cuz by default we ignore everything except tracked files.
 
-## Dotfiles scope
+Dotfiles scope
 
 Typical tracked files include shell config, editor config, terminal config, and tool settings located under `$HOME`.
 Run this to see all files that are currently tracked:
