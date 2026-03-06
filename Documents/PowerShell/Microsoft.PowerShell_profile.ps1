@@ -1,38 +1,28 @@
-# ==============================================================================
-# Environment Setup (instant)
-# ==============================================================================
 $env:TERM = "xterm-256color"
 
-# ==============================================================================
 # Starship
-# ==============================================================================
 if (Get-Command starship -ErrorAction SilentlyContinue) {
     Invoke-Expression (&starship init powershell)
 }
 
-# ==============================================================================
 # Zoxide
-# ==============================================================================
 if (Get-Command zoxide -ErrorAction SilentlyContinue) {
     Invoke-Expression (& { (zoxide init powershell | Out-String) })
 }
 
-# ==============================================================================
 # Functions (moved outside wrapper for reliability)
-# ==============================================================================
 function touch($file) { "" | Out-File $file -Encoding ASCII }
 
 if (Test-Path Alias:ls) { Remove-Item Alias:ls -Force -ErrorAction SilentlyContinue }
 function ls { eza -la --icons --git @args }
 # Set-Alias -Name lsa -Value ls -Option AllScope
 
+# Find files
 function ff($name) {
     Get-ChildItem -recurse -filter "*${name}*" -ErrorAction SilentlyContinue | ForEach-Object {
         Write-Output "$($_.FullName)"
     }
 }
-
-function so { . $PROFILE }
 
 function dot {
     git --git-dir=$HOME\.dotfiles --work-tree=$HOME @Args
@@ -86,31 +76,10 @@ function uptime {
     }
 }
 
-function mkcd { param($dir) mkdir $dir -Force; Set-Location $dir }
-
-function trash($path) {
-    $fullPath = (Resolve-Path -Path $path).Path
-    if (Test-Path $fullPath) {
-        $item = Get-Item $fullPath
-        $parentPath = if ($item.PSIsContainer) { $item.Parent.FullName } else { $item.DirectoryName }
-        $shell = New-Object -ComObject 'Shell.Application'
-        $shellItem = $shell.NameSpace($parentPath).ParseName($item.Name)
-        if ($shellItem) {
-            $shellItem.InvokeVerb('delete')
-            Write-Host "Item '$fullPath' has been moved to the Recycle Bin."
-        } else {
-            Write-Host "Error: Could not find the item '$fullPath' to trash."
-        }
-    } else {
-        Write-Host "Error: Item '$fullPath' does not exist."
-    }
-}
-
+# Find which executable would run for a command (like 'which' in Unix)
 function which($name) { & where.exe $name }
 
-# ==============================================================================
 # PSReadLine
-# ==============================================================================
 $PSReadLineOptions = @{
     EditMode = 'Windows'
     HistoryNoDuplicates = $true
@@ -170,16 +139,9 @@ Set-PSReadLineOption -AddToHistoryHandler {
     return ($null -eq $hasSensitive)
 }
 
-# ==============================================================================
 # OpenCode Environment Variables
-# ==============================================================================
 $env:OPENCODE_ENABLE_EXA = "1"
 $env:OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
-$env:OPENCODE_EXPERIMENTAL_MARKDOWN = "1"
-# $env:OPENCODE_EXPERIMENTAL_DYNAMIC_MODELS = "1"
-# $env:OPENCODE_GIT_BASH_PATH = "C:\Program Files\Git\bin\bash.exe" # No need cuz opencode auto detects git bash
-# $env:OPENCODE_DISABLE_FILETIME_CHECK = "1"
-# $env:OPENCODE_MODELS_URL= "http://localhost:8989"
 
 #oc = open code binary
 # Set-Alias -Name oc -Value ocb
@@ -237,4 +199,6 @@ function bash {
 # $pnpmHome = Join-Path $HOME "AppData\Local\pnpm"
 # $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and $_ -ne $pnpmHome } | Select-Object -Unique) -join ';'
 
-(&mise activate pwsh) | Out-String | Invoke-Expression
+if (Get-Command mise -ErrorAction SilentlyContinue) {
+    (& mise activate pwsh) | Out-String | Invoke-Expression
+}
