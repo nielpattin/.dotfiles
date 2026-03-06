@@ -5,16 +5,16 @@
 	"default_agent": "smart",
 	"small_model": "github-copilot/gpt-5-mini",
 	"plugin": [
-		"./plugins/opencode-usage-plugin",
-		"./plugins/exsolutor",
+		// "./plugins/opencode-usage-plugin",
+		// "./plugins/exsolutor",
 		"./plugins/opencode-session-manager",
-		"./plugins/opencode-notifier",
+		// "./plugins/opencode-notifier",
 		// "file:///c:/Users/niel/.config/opencode/hooks/openslimedit/src/index.ts", 
 		// "file:///c:/Users/niel/.config/opencode/plugins/polaris-opencode/src/index.ts",
 		// "opencode-snippets@1.6.0",
 		// "@howaboua/opencode-tps-counter@latest",
 		// "./plugin/plannotator/apps/opencode-plugin",
-		"opencode-pty@latest",
+		// "opencode-pty@latest",
 		// "@tarquinen/opencode-dcp@beta",
 		// "./plugins/polaris-opencode",
 		// "polaris-opencode@1.1.0",
@@ -64,20 +64,20 @@
 		"continue_loop_on_deny": true,
 	},
 	"agent": {
-		"build": {
-			"hidden": true
-		},
-		"plan": {
-			"hidden": true
-		},
-		"general": {
-			"mode": "subagent",
-			"model": "llm-proxy/cli_gemini-3-flash",
-			"disable": true,
-		},
-		"compaction": {
-			"model": "llm-proxy/cli_gemini-3-flash",
-		},
+		// "build": {
+		// 	"hidden": true
+		// },
+		// "plan": {
+		// 	"hidden": true
+		// },
+		// "general": {
+		// 	"mode": "subagent",
+		// 	"model": "llm-proxy/cli_gemini-3-flash",
+		// 	"disable": true,
+		// },
+		// "compaction": {
+		// 	"model": "llm-proxy/cli_gemini-3-flash",
+		// },
 		"triage": {
 			"disable": true,
 		},
@@ -95,7 +95,7 @@
 				"os",
 				"mcp"
 			],
-			"enabled": true,
+			"enabled": false,
 		},
 		"context7": {
 			"type": "local",
