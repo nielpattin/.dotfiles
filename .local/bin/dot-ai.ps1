@@ -52,7 +52,7 @@ $env:GIT_WORK_TREE = "$HOME"
 
 Push-Location $HOME
 try {
-    pi --thinking medium --tools "read,bash" --provider openai-codex --model gpt-5.1-codex-mini --no-extensions --no-prompt-templates --no-skills -p $prompt
+    pi --thinking medium --tools "read,bash" --provider openai-codex --model gpt-5.1-codex-mini --no-extensions --no-prompt-templates --no-skills $prompt
 }
 finally {
     Pop-Location
