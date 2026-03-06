@@ -503,7 +503,7 @@ export default function welcomeExtension(pi: ExtensionAPI) {
       ctx.ui.custom(
         (tui: any, _theme: any, _keybindings: any, done: (result: void) => void) => {
           const welcome = new WelcomeComponent(data);
-          let countdown = 30;
+          let countdown = 10;
           let dismissed = false;
 
           const dismiss = () => {

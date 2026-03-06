@@ -1,18 +1,18 @@
 {
-  "lastChangelogVersion": "0.56.1",
+  "lastChangelogVersion": "0.56.2",
   "hideThinkingBlock": false,
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.3-codex",
   "editorPaddingX": 0,
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "medium",
   "theme": "catppuccin-mocha",
   "transport": "sse",
   "packages": [
     {
       "source": "git:github.com/nielpattin/pi-sub",
       "extensions": [
-        "+packages\\sub-core/index.ts",
-        "+packages\\sub-bar/index.ts"
+        "-packages\\sub-bar\\index.ts",
+        "-packages\\sub-core\\index.ts"
       ]
     },
     {
@@ -26,10 +26,25 @@
       "source": "https://github.com/nicobailon/visual-explainer",
       "skills": [
         "-CHANGELOG.md",
-        "-README.md"
+        "-README.md",
+        "-SKILL.md"
+      ],
+      "prompts": [
+        "-prompts\\diff-review.md",
+        "-prompts\\fact-check.md",
+        "-prompts\\generate-slides.md",
+        "-prompts\\generate-visual-plan.md",
+        "-prompts\\generate-web-diagram.md",
+        "-prompts\\plan-review.md",
+        "-prompts\\project-recap.md"
       ]
     },
-    "npm:pi-mcporter"
+    {
+      "source": "npm:pi-mcporter",
+      "extensions": [
+        "+dist\\index.js"
+      ]
+    }
   ],
   "skills": [
     "-..\\..\\.agents\\skills\\prd\\SKILL.md",
@@ -45,15 +60,29 @@
     "-..\\..\\.agents\\skills\\commit-message-generator\\SKILL.md"
   ],
   "extensions": [
-    "-extensions\\session-query\\index.ts",
     "-extensions\\modes\\index.ts",
-    "+extensions\\image-preview\\index.ts",
+    "+extensions\\permissions\\index.ts",
+    "-extensions\\command-palette\\index.ts",
+    "-extensions\\figma-start.ts",
+    "-extensions\\handoff\\index.ts",
+    "-extensions\\pi-subagent\\index.ts",
+    "-extensions\\prompt-stash.ts",
+    "-extensions\\session-query\\index.ts",
+    "-extensions\\tab-status\\index.ts",
+    "-extensions\\theme-cycle\\index.ts",
+    "-extensions\\tools\\index.ts",
+    "-extensions\\usage-extension\\index.ts",
+    "-extensions\\welcome\\index.ts",
     "-extensions\\working-vibes\\index.ts",
-    "+extensions\\figma-start.ts",
-    "+extensions\\powerline-footer\\index.ts",
-    "+extensions\\tab-status\\index.ts"
+    "-extensions\\you-are-right-killer.ts",
+    "-extensions\\agents-discovery\\index.ts",
+    "-extensions\\image-preview\\index.ts",
+    "-extensions\\multicodex.ts",
+    "-extensions\\notification\\index.ts",
+    "-extensions\\powerline-footer\\index.ts",
+    "+extensions\\smart-sessions\\index.ts"
   ],
-  "workingVibeModel": "openai-codex//gpt-5.3-codex",
+  "workingVibeModel": "openai-codex/gpt-5.3-codex",
   "workingVibe": "game-dev",
   "compaction": {
     "enabled": true
