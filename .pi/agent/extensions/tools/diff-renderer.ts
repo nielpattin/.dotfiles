@@ -14,7 +14,14 @@ type SplitDiffRow = {
 	right?: DiffLine;
 };
 
+type UnifiedDiffRow = {
+	kind: CellLineKind;
+	line: DiffLine;
+	inlineSpans?: DiffSpan[];
+};
+
 type CellLineKind = "add" | "remove" | "context";
+type DiffViewMode = "split" | "unified";
 
 type DiffSpan = { start: number; end: number };
 
@@ -35,6 +42,7 @@ const ADD_INLINE_EMPHASIS_MIX_RATIO = 0.44;
 const REMOVE_INLINE_EMPHASIS_MIX_RATIO = 0.26;
 
 const editToolCache = new Map<string, ReturnType<typeof createEditTool>>();
+let currentDiffViewMode: DiffViewMode = "split";
 
 function getEditTool(cwd: string) {
 	let tool = editToolCache.get(cwd);
@@ -390,6 +398,35 @@ function buildSplitRows(diff: string): SplitDiffRow[] {
 	return rows;
 }
 
+function buildUnifiedRows(rows: SplitDiffRow[]): UnifiedDiffRow[] {
+	const unified: UnifiedDiffRow[] = [];
+
+	for (const row of rows) {
+		if (row.kind === "context" && row.left) {
+			unified.push({ kind: "context", line: row.left });
+			continue;
+		}
+
+		if (row.kind === "changed" && row.left && row.right) {
+			const spans = computeInlineDiffSpans(row.left.line, row.right.line);
+			unified.push({ kind: "remove", line: row.left, inlineSpans: spans.left });
+			unified.push({ kind: "add", line: row.right, inlineSpans: spans.right });
+			continue;
+		}
+
+		if (row.kind === "removed" && row.left) {
+			unified.push({ kind: "remove", line: row.left });
+			continue;
+		}
+
+		if (row.kind === "added" && row.right) {
+			unified.push({ kind: "add", line: row.right });
+		}
+	}
+
+	return unified;
+}
+
 class SplitDiffComponent implements Component {
 	private cacheWidth?: number;
 	private cacheLines?: string[];
@@ -653,8 +690,190 @@ class SplitDiffComponent implements Component {
 	}
 }
 
+class UnifiedDiffComponent implements Component {
+	private cacheWidth?: number;
+	private cacheLines?: string[];
+	private readonly lineNumberWidth: number;
+	private readonly highlightCache = new Map<string, string>();
+	private readonly palette: DiffPalette;
+	private readonly containerBgAnsi: string;
+
+	constructor(
+		private readonly theme: Theme,
+		private readonly rows: UnifiedDiffRow[],
+		private readonly maxRows: number,
+		private readonly language?: string,
+	) {
+		let maxDigits = 3;
+		for (const row of rows) {
+			const digits = row.line.lineNumber.trim().length;
+			maxDigits = Math.max(maxDigits, digits);
+		}
+		this.lineNumberWidth = maxDigits;
+		this.palette = resolveDiffPalette(theme);
+		this.containerBgAnsi = theme.getBgAnsi("toolSuccessBg");
+	}
+
+	private getNumberColor(lineKind: CellLineKind): "toolDiffRemoved" | "toolDiffAdded" | "dim" {
+		if (lineKind === "remove") return "toolDiffRemoved";
+		if (lineKind === "add") return "toolDiffAdded";
+		return "dim";
+	}
+
+	private getRowBackground(lineKind: CellLineKind): string | undefined {
+		if (lineKind === "add") return this.palette.addRowBgAnsi;
+		if (lineKind === "remove") return this.palette.removeRowBgAnsi;
+		return undefined;
+	}
+
+	private getEmphasisBackground(lineKind: CellLineKind): string | undefined {
+		if (lineKind === "add") return this.palette.addEmphasisBgAnsi;
+		if (lineKind === "remove") return this.palette.removeEmphasisBgAnsi;
+		return undefined;
+	}
+
+	private syntaxHighlight(line: string): string {
+		if (!this.language) return stripInlineBreaksPreserveAnsi(line);
+		const safeLine = sanitizeSingleLineText(line);
+		const key = `${this.language}\n${safeLine}`;
+		const cached = this.highlightCache.get(key);
+		if (cached) return cached;
+
+		let highlighted = safeLine;
+		try {
+			highlighted = highlightCode(safeLine, this.language)[0] ?? safeLine;
+			highlighted = stripInlineBreaksPreserveAnsi(highlighted).replace(BG_ANSI_PATTERN, "");
+		} catch {
+			highlighted = safeLine;
+		}
+		this.highlightCache.set(key, highlighted);
+		return highlighted;
+	}
+
+	private formatRowLines(row: UnifiedDiffRow, width: number): string[] {
+		const markerChar = row.kind === "add" || row.kind === "remove" ? "▌" : " ";
+		const markerColor = row.kind === "add" ? "toolDiffAdded" : row.kind === "remove" ? "toolDiffRemoved" : "borderMuted";
+		const lineNumber = row.line.lineNumber.trim().padStart(this.lineNumberWidth, " ");
+
+		const firstPrefixAnsi =
+			this.theme.fg(markerColor, markerChar) +
+			" " +
+			this.theme.fg(this.getNumberColor(row.kind), lineNumber) +
+			this.theme.fg("borderMuted", " │ ");
+		const firstPrefixPlain = `${markerChar} ${lineNumber} │ `;
+		const contPrefixAnsi =
+			this.theme.fg(markerColor, markerChar) +
+			" " +
+			this.theme.fg("dim", " ".repeat(this.lineNumberWidth)) +
+			this.theme.fg("borderMuted", " │ ");
+		const contPrefixPlain = `${markerChar} ${" ".repeat(this.lineNumberWidth)} │ `;
+
+		const codeWidth = Math.max(1, width - visibleWidth(firstPrefixPlain));
+		const rowBg = this.getRowBackground(row.kind);
+		const emphasisBg = this.getEmphasisBackground(row.kind);
+		const plainSegments = wrapPlainText(row.line.line, codeWidth);
+		const spans = row.inlineSpans ?? [];
+		const lines: string[] = [];
+
+		let consumed = 0;
+		for (let i = 0; i < plainSegments.length; i++) {
+			const prefixAnsi = i === 0 ? firstPrefixAnsi : contPrefixAnsi;
+			const prefixPlain = i === 0 ? firstPrefixPlain : contPrefixPlain;
+			const plainSegment = plainSegments[i] ?? "";
+			let segment = this.syntaxHighlight(plainSegment);
+
+			if (spans.length > 0 && emphasisBg) {
+				const segmentStart = consumed;
+				for (let si = spans.length - 1; si >= 0; si--) {
+					const span = spans[si];
+					if (!span) continue;
+					const localStart = Math.max(0, span.start - segmentStart);
+					const localEnd = Math.min(plainSegment.length, span.end - segmentStart);
+					if (localEnd > localStart) {
+						segment = applyBackgroundToVisibleRange(
+							segment,
+							localStart,
+							localEnd,
+							emphasisBg,
+							rowBg ?? this.containerBgAnsi,
+						);
+					}
+				}
+			}
+
+			segment = fitToWidth(segment, codeWidth);
+			let rendered = prefixAnsi + segment;
+			const expectedWidth = visibleWidth(prefixPlain) + codeWidth;
+			const currentWidth = visibleWidth(stripAnsi(rendered));
+			if (currentWidth < expectedWidth) {
+				rendered += " ".repeat(expectedWidth - currentWidth);
+			}
+
+			if (rowBg) {
+				rendered = `${rowBg}${keepBackgroundAcrossResets(rendered, rowBg)}${this.containerBgAnsi}`;
+			}
+			lines.push(padRenderedLineWidth(rendered, width));
+			consumed += plainSegment.length;
+		}
+
+		return lines;
+	}
+
+	render(width: number): string[] {
+		if (this.cacheWidth === width && this.cacheLines) return this.cacheLines;
+
+		const safeWidth = Math.max(20, width);
+		const chars = "─".repeat(safeWidth).split("");
+		const dividerIndex = this.lineNumberWidth + 3;
+		if (dividerIndex >= 0 && dividerIndex < chars.length) {
+			chars[dividerIndex] = "┬";
+		}
+
+		const markerPad = "  ";
+		const lineNumberLabel = fitToWidth("line", this.lineNumberWidth);
+		const headerPrefixAnsi =
+			this.theme.fg("borderMuted", markerPad) +
+			this.theme.fg("dim", lineNumberLabel) +
+			this.theme.fg("borderMuted", " │ ");
+		const headerPrefixPlain = `${markerPad}${stripAnsi(lineNumberLabel)} │ `;
+		const headerCodeWidth = Math.max(0, safeWidth - visibleWidth(headerPrefixPlain));
+
+		const lines: string[] = [];
+		lines.push(this.theme.fg("borderMuted", chars.join("")));
+		lines.push(padRenderedLineWidth(headerPrefixAnsi + " ".repeat(headerCodeWidth), safeWidth));
+
+		for (const row of this.rows.slice(0, this.maxRows)) {
+			lines.push(...this.formatRowLines(row, safeWidth));
+		}
+
+		if (this.rows.length > this.maxRows) {
+			lines.push(this.theme.fg("muted", `... ${this.rows.length - this.maxRows} more rows`));
+		}
+
+		this.cacheWidth = width;
+		this.cacheLines = lines;
+		return lines;
+	}
+
+	invalidate(): void {
+		this.cacheWidth = undefined;
+		this.cacheLines = undefined;
+		this.highlightCache.clear();
+	}
+}
+
 export default function diffRendererExtension(pi: ExtensionAPI) {
 	const templateTool = getEditTool(process.cwd());
+
+	pi.registerCommand("diff-view", {
+		description: "Toggle edit diff view mode (split/unified)",
+		handler: async (_args, ctx) => {
+			currentDiffViewMode = currentDiffViewMode === "split" ? "unified" : "split";
+			if (ctx.hasUI) {
+				ctx.ui.notify(`Diff view: ${currentDiffViewMode}`, "info");
+			}
+		},
+	});
 
 	pi.registerTool({
 		name: "edit",
@@ -689,25 +908,31 @@ export default function diffRendererExtension(pi: ExtensionAPI) {
 			const language = sourcePath ? getLanguageFromPath(sourcePath) : undefined;
 			const { additions, removals } = countDiffStats(details.diff);
 			const meter = renderDiffMeter(theme, additions, removals);
-			const summary =
-				`${theme.fg("dim", "↳")} ${theme.fg("muted", "diff")}` +
-				` ${theme.fg("toolDiffAdded", `+${additions}`)}` +
-				` ${theme.fg("toolDiffRemoved", `-${removals}`)}` +
-				` ${theme.fg("muted", "split")}` +
-				(meter ? ` ${meter}` : "");
 
 			const rows = buildSplitRows(details.diff);
+			const unifiedRows = buildUnifiedRows(rows);
 			const maxRows = expanded ? 160 : 36;
 			const split = new SplitDiffComponent(theme, rows, maxRows, language);
+			const unified = new UnifiedDiffComponent(theme, unifiedRows, maxRows, language);
 
 			return {
 				render(width: number): string[] {
+					const mode = currentDiffViewMode;
+					const summary =
+						`${theme.fg("dim", "↳")} ${theme.fg("muted", "diff")}` +
+						` ${theme.fg("toolDiffAdded", `+${additions}`)}` +
+						` ${theme.fg("toolDiffRemoved", `-${removals}`)}` +
+						` ${theme.fg("muted", mode)}` +
+						(meter ? ` ${meter}` : "");
+
 					const safeWidth = Math.max(20, width - 1);
 					const headerLines = new Text(summary, 0, 0).render(safeWidth);
-					return [...headerLines, ...split.render(safeWidth)];
+					const body = mode === "split" ? split.render(safeWidth) : unified.render(safeWidth);
+					return [...headerLines, ...body];
 				},
 				invalidate(): void {
 					split.invalidate();
+					unified.invalidate();
 				},
 			};
 		},
