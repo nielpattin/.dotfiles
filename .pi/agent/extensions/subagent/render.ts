@@ -421,11 +421,11 @@ function cardSessionLine(
 ): string {
 	const session = sessionIdentity(r);
 	if (session) {
-		const parts = [session, r.agentSource, delegationMode];
+		const parts = [session, delegationMode];
 		return theme.fg("muted", "Session: ") + theme.fg("dim", parts.join(" • "));
 	}
 
-	const parts = [r.agentSource, delegationMode];
+	const parts = [delegationMode];
 	return theme.fg("muted", "Source: ") + theme.fg("dim", parts.join(" • "));
 }
 
