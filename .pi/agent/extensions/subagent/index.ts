@@ -1,12 +1,12 @@
 /**
- * Pi Subagent Extension
+ * Pi Task Extension
  *
- * Delegates tasks to specialized subagents, each running as an isolated `pi`
+ * Delegates tasks to specialized task agents, each running as an isolated `pi`
  * process.
  *
  * Supports two invocation shapes:
- *   - Single:   { agent: "name", task: "..." }
- *   - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] }
+ *   - Single:   { agent: "name", summary: "...", task: "..." }
+ *   - Parallel: { tasks: [{ agent: "name", summary: "...", task: "..." }, ...] }
  *
  * And two context modes:
  *   - spawn (default): child gets only the task prompt.
@@ -16,6 +16,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type AgentConfig, discoverAgents } from "./agents.js";
+import { SUBAGENT_UI_REFRESH_MS } from "./constants.js";
 import { renderCall, renderResult } from "./render.js";
 import { mapConcurrent, runAgent } from "./runner.js";
 import {
@@ -34,10 +35,9 @@ import {
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
-const PARALLEL_HEARTBEAT_MS = 1000;
 const DEFAULT_MAX_DELEGATION_DEPTH = 1;
-const SUBAGENT_DEPTH_ENV = "PI_SUBAGENT_DEPTH";
-const SUBAGENT_MAX_DEPTH_ENV = "PI_SUBAGENT_MAX_DEPTH";
+const TASK_DEPTH_ENV = "PI_TASK_DEPTH";
+const TASK_MAX_DEPTH_ENV = "PI_TASK_MAX_DEPTH";
 
 // ---------------------------------------------------------------------------
 // Tool parameter schema
@@ -49,14 +49,20 @@ const TaskItem = Type.Object({
   }),
   task: Type.String({
     description:
-      "Task description for this delegated run. In spawn mode include all required context; in fork mode the subagent also sees your current session context.",
+      "Task description for this delegated run. In spawn mode include all required context; in fork mode the task agent also sees your current session context.",
+  }),
+  summary: Type.String({
+    minLength: 1,
+    pattern: "\\S",
+    description:
+      "Short UI summary for this delegated run. Displayed in task card headers. Does not change the task sent to the child agent.",
   }),
   cwd: Type.Optional(
     Type.String({ description: "Working directory for this agent's process" }),
   ),
 });
 
-const SubagentParams = Type.Object({
+const TaskParams = Type.Object({
   agent: Type.Optional(
     Type.String({
       description:
@@ -66,19 +72,28 @@ const SubagentParams = Type.Object({
   task: Type.Optional(
     Type.String({
       description:
-        "Task description for single mode. In spawn mode it must be self-contained; in fork mode the subagent also receives your current session context.",
+        "Task description for single mode. In spawn mode it must be self-contained; in fork mode the task agent also receives your current session context.",
+    }),
+  ),
+  summary: Type.Optional(
+    Type.String({
+      minLength: 1,
+      pattern: "\\S",
+      description:
+        "Short UI summary for single mode. Required with agent/task at runtime. Displayed in task card headers. Does not change the task sent to the child agent.",
     }),
   ),
   tasks: Type.Optional(
     Type.Array(TaskItem, {
+      minItems: 1,
       description:
-        "For parallel mode: array of {agent, task} objects. Each task runs in an isolated process concurrently. Do NOT set agent/task when using this.",
+        "For parallel mode: array of {agent, summary, task} objects. Each task runs in an isolated process concurrently. Do NOT set top-level agent/task when using this.",
     }),
   ),
   mode: Type.Optional(
     Type.String({
       description:
-        "Context mode for delegated runs. 'spawn' (default) sends only the task prompt (best for isolated, reproducible runs with lower token/cost and less context leakage). 'fork' adds a snapshot of current session context plus task prompt (best for follow-up work, but usually higher token/cost and may include sensitive context).",
+        "Context mode for delegated runs. 'spawn' (default) sends only the task prompt (best for isolated, reproducible runs with lower token/cost and less context leakage). 'fork' adds a snapshot of current session context plus task prompt (best for follow-up work that depends on prior context; usually higher token/cost and may include sensitive context).",
       default: DEFAULT_DELEGATION_MODE,
     }),
   ),
@@ -121,6 +136,10 @@ function parseDelegationMode(raw: unknown): DelegationMode | null {
   return null;
 }
 
+function hasNonBlankText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function buildForkSessionSnapshotJsonl(
   sessionManager: SessionSnapshotSource,
 ): string | null {
@@ -144,31 +163,31 @@ function parseNonNegativeInt(raw: unknown): number | null {
 function getMaxDepthFlagFromArgv(argv: string[]): string | null {
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--subagent-max-depth") {
+    if (arg === "--task-max-depth") {
       return argv[i + 1] ?? "";
     }
-    if (arg.startsWith("--subagent-max-depth=")) {
-      return arg.slice("--subagent-max-depth=".length);
+    if (arg.startsWith("--task-max-depth=")) {
+      return arg.slice("--task-max-depth=".length);
     }
   }
   return null;
 }
 
 function resolveDelegationDepthConfig(pi: ExtensionAPI): DelegationDepthConfig {
-  const depthRaw = process.env[SUBAGENT_DEPTH_ENV];
+  const depthRaw = process.env[TASK_DEPTH_ENV];
   const parsedDepth = parseNonNegativeInt(depthRaw);
   if (depthRaw !== undefined && parsedDepth === null) {
     console.warn(
-      `[pi-subagent] Ignoring invalid ${SUBAGENT_DEPTH_ENV}="${depthRaw}". Expected a non-negative integer.`,
+      `[pi-task] Ignoring invalid ${TASK_DEPTH_ENV}="${depthRaw}". Expected a non-negative integer.`,
     );
   }
   const currentDepth = parsedDepth ?? 0;
 
-  const envMaxDepthRaw = process.env[SUBAGENT_MAX_DEPTH_ENV];
+  const envMaxDepthRaw = process.env[TASK_MAX_DEPTH_ENV];
   const envMaxDepth = parseNonNegativeInt(envMaxDepthRaw);
   if (envMaxDepthRaw !== undefined && envMaxDepth === null) {
     console.warn(
-      `[pi-subagent] Ignoring invalid ${SUBAGENT_MAX_DEPTH_ENV}="${envMaxDepthRaw}". Expected a non-negative integer.`,
+      `[pi-task] Ignoring invalid ${TASK_MAX_DEPTH_ENV}="${envMaxDepthRaw}". Expected a non-negative integer.`,
     );
   }
 
@@ -177,11 +196,11 @@ function resolveDelegationDepthConfig(pi: ExtensionAPI): DelegationDepthConfig {
     argvFlagRaw !== null ? parseNonNegativeInt(argvFlagRaw) : null;
   if (argvFlagRaw !== null && argvFlagMaxDepth === null) {
     console.warn(
-      `[pi-subagent] Ignoring invalid --subagent-max-depth value "${argvFlagRaw}". Expected a non-negative integer.`,
+      `[pi-task] Ignoring invalid --task-max-depth value "${argvFlagRaw}". Expected a non-negative integer.`,
     );
   }
 
-  const runtimeFlagValue = pi.getFlag("subagent-max-depth");
+  const runtimeFlagValue = pi.getFlag("task-max-depth");
   const runtimeFlagMaxDepth =
     typeof runtimeFlagValue === "string"
       ? parseNonNegativeInt(runtimeFlagValue)
@@ -192,7 +211,7 @@ function resolveDelegationDepthConfig(pi: ExtensionAPI): DelegationDepthConfig {
     runtimeFlagMaxDepth === null
   ) {
     console.warn(
-      `[pi-subagent] Ignoring invalid --subagent-max-depth value "${runtimeFlagValue}". Expected a non-negative integer.`,
+      `[pi-task] Ignoring invalid --task-max-depth value "${runtimeFlagValue}". Expected a non-negative integer.`,
     );
   }
 
@@ -252,8 +271,8 @@ async function confirmProjectAgentsIfNeeded(
 // ---------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
-  pi.registerFlag("subagent-max-depth", {
-    description: "Maximum allowed subagent delegation depth (default: 1).",
+  pi.registerFlag("task-max-depth", {
+    description: "Maximum allowed task delegation depth (default: 1).",
     type: "string",
   });
 
@@ -274,7 +293,7 @@ export default function (pi: ExtensionAPI) {
         .map((a) => `  - ${a.name} (${a.source})`)
         .join("\n");
       ctx.ui.notify(
-        `Found ${discoveredAgents.length} subagent(s):\n${list}`,
+        `Found ${discoveredAgents.length} task agent(s):\n${list}`,
         "info",
       );
     }
@@ -291,15 +310,15 @@ export default function (pi: ExtensionAPI) {
     return {
       systemPrompt:
         event.systemPrompt +
-        `\n\n## Available Subagents
+        `\n\n## Available Task Agents
 
-The following subagents are available via the \`subagent\` tool:
+The following task agents are available via the \`task\` tool:
 
 ${agentList}
 
-### How to call the subagent tool
+### How to call the task tool
 
-Each subagent runs in an **isolated process**.
+Each task runs in an **isolated process**.
 
 Context behavior is controlled by optional 'mode':
 - 'spawn' (default): child receives only the provided task prompt. Best for isolated, reproducible tasks with lower token/cost and less context leakage.
@@ -307,12 +326,12 @@ Context behavior is controlled by optional 'mode':
 
 **Single mode** — delegate one task:
 \`\`\`json
-{ "agent": "agent-name", "task": "Detailed task...", "mode": "spawn" }
+{ "agent": "agent-name", "summary": "Short task summary", "task": "Detailed task...", "mode": "spawn" }
 \`\`\`
 
 **Parallel mode** — run multiple tasks concurrently (do NOT also set agent/task):
 \`\`\`json
-{ "tasks": [{ "agent": "agent-name", "task": "..." }, { "agent": "other-agent", "task": "..." }], "mode": "fork" }
+{ "tasks": [{ "agent": "agent-name", "summary": "Short task summary", "task": "..." }, { "agent": "other-agent", "summary": "Short task summary", "task": "..." }], "mode": "fork" }
 \`\`\`
 
 Use single mode for one task, parallel mode when tasks are independent and can run simultaneously.
@@ -320,17 +339,17 @@ Use single mode for one task, parallel mode when tasks are independent and can r
     };
   });
 
-  // Register the subagent tool
+  // Register the task tool
   if (canDelegate) {
     pi.registerTool({
-      name: "subagent",
-      label: "Subagent",
+      name: "task",
+      label: "Task",
       description: [
-        "Delegate work to specialized subagents running in isolated pi processes.",
+        "Delegate work to specialized task agents running in isolated pi processes.",
         "",
         "IMPORTANT: Use exactly ONE invocation shape:",
-        "  Single mode:   set `agent` and `task` (both required together).",
-        "  Parallel mode: set `tasks` array (do NOT also set `agent`/`task`).",
+        "  Single mode:   set `agent`, `summary`, and `task` (all required together).",
+        "  Parallel mode: set `tasks` array with `agent`, `summary`, and `task` for each item (do NOT also set top-level `agent`/`task`).",
         "",
         "Optional context mode switch:",
         "  mode: \"spawn\" (default) -> child gets only your task prompt.",
@@ -338,10 +357,10 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         "  mode: \"fork\"            -> child gets current session context + your task prompt.",
         "                             Best for follow-up work that depends on prior context; higher token/cost and may include sensitive context.",
         "",
-        'Example single:   { agent: "writer", task: "Rewrite README.md", mode: "spawn" }',
-        'Example parallel: { tasks: [{ agent: "writer", task: "..." }, { agent: "tester", task: "..." }], mode: "fork" }',
+        'Example single:   { agent: "writer", summary: "README rewrite", task: "Rewrite README.md", mode: "spawn" }',
+        'Example parallel: { tasks: [{ agent: "writer", summary: "README rewrite", task: "..." }, { agent: "tester", summary: "Validation pass", task: "..." }], mode: "fork" }',
       ].join("\n"),
-      parameters: SubagentParams,
+      parameters: TaskParams,
 
       async execute(_toolCallId, params, signal, onUpdate, ctx) {
         const discovery = discoverAgents(ctx.cwd, "both");
@@ -349,7 +368,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
 
         const delegationMode = parseDelegationMode(params.mode);
         if (!delegationMode) {
-          const fallbackDetails = makeDetailsFactory(
+          const invalidModeDetails = makeDetailsFactory(
             discovery.projectAgentsDir,
             DEFAULT_DELEGATION_MODE,
           );
@@ -360,7 +379,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
                 text: `Invalid mode \"${String(params.mode)}\". Expected \"spawn\" or \"fork\".\nAvailable agents: ${formatAgentNames(agents)}`,
               },
             ],
-            details: fallbackDetails("single")([]),
+            details: invalidModeDetails("single")([]),
             isError: true,
           };
         }
@@ -389,10 +408,49 @@ Use single mode for one task, parallel mode when tasks are independent and can r
           }
         }
 
-        // Validate: exactly one invocation shape must be specified
-        const hasTasks = (params.tasks?.length ?? 0) > 0;
-        const hasSingle = Boolean(params.agent && params.task);
-        if (Number(hasTasks) + Number(hasSingle) !== 1) {
+        const hasParallelTasks = Array.isArray(params.tasks)
+          && params.tasks.length > 0
+          && params.tasks.every((task) =>
+            hasNonBlankText(task.agent)
+            && hasNonBlankText(task.summary)
+            && hasNonBlankText(task.task)
+            && (task.cwd === undefined || typeof task.cwd === "string"),
+          );
+        const hasAnySingleField =
+          params.agent !== undefined
+          || params.summary !== undefined
+          || params.task !== undefined
+          || params.cwd !== undefined;
+        const hasSingleTask =
+          hasNonBlankText(params.agent)
+          && hasNonBlankText(params.summary)
+          && hasNonBlankText(params.task);
+
+        if (params.tasks !== undefined && !hasParallelTasks) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "Invalid parallel task parameters. Each task item requires agent, summary, and task.",
+              },
+            ],
+            details: makeDetails("parallel")([]),
+            isError: true,
+          };
+        }
+        if (hasAnySingleField && !hasSingleTask) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Invalid single-task parameters. Single mode requires agent, summary, and task.\nAvailable agents: ${formatAgentNames(agents)}`,
+              },
+            ],
+            details: makeDetails("single")([]),
+            isError: true,
+          };
+        }
+        if ((hasParallelTasks && hasAnySingleField) || (!hasParallelTasks && !hasSingleTask)) {
           return {
             content: [
               {
@@ -400,14 +458,20 @@ Use single mode for one task, parallel mode when tasks are independent and can r
                 text: `Invalid parameters. Provide exactly one invocation shape.\nAvailable agents: ${formatAgentNames(agents)}`,
               },
             ],
-            details: makeDetails("single")([]),
+            details: makeDetails(hasParallelTasks ? "parallel" : "single")([]),
+            isError: true,
           };
         }
 
+        const isParallel = hasParallelTasks;
+
         // Security: guard project-local agents before running
         const requested = new Set<string>();
-        if (params.tasks) for (const t of params.tasks) requested.add(t.agent);
-        if (params.agent) requested.add(params.agent);
+        if (isParallel) {
+          for (const t of params.tasks) requested.add(t.agent);
+        } else {
+          requested.add(params.agent);
+        }
 
         const requestedProjectAgents = getRequestedProjectAgents(
           agents,
@@ -429,7 +493,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
                     text: "Canceled: project-local agents not approved.",
                   },
                 ],
-                details: makeDetails(hasTasks ? "parallel" : "single")([]),
+                details: makeDetails(isParallel ? "parallel" : "single")([]),
               };
             }
           } else {
@@ -442,17 +506,20 @@ Use single mode for one task, parallel mode when tasks are independent and can r
                   text: `Blocked: project-local agent confirmation is required in non-UI mode.\nAgents: ${names}\nSource: ${dir}\n\nRe-run with confirmProjectAgents: false only if this repository is trusted.`,
                 },
               ],
-              details: makeDetails(hasTasks ? "parallel" : "single")([]),
+              details: makeDetails(isParallel ? "parallel" : "single")([]),
               isError: true,
             };
           }
         }
 
+        const inheritedThinking = pi.getThinkingLevel();
+
         // ── Parallel mode ──
-        if (params.tasks && params.tasks.length > 0) {
+        if (isParallel) {
           return executeParallel(
             params.tasks,
             delegationMode,
+            inheritedThinking,
             forkSessionSnapshotJsonl,
             agents,
             ctx.cwd,
@@ -463,35 +530,25 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         }
 
         // ── Single mode ──
-        if (params.agent && params.task) {
-          return executeSingle(
-            params.agent,
-            params.task,
-            params.cwd,
-            delegationMode,
-            forkSessionSnapshotJsonl,
-            agents,
-            ctx.cwd,
-            signal,
-            onUpdate,
-            makeDetails,
-          );
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Invalid parameters. Available agents: ${formatAgentNames(agents)}`,
-            },
-          ],
-          details: makeDetails("single")([]),
-        };
+        return executeSingle(
+          params.agent,
+          params.task,
+          params.summary,
+          params.cwd,
+          delegationMode,
+          inheritedThinking,
+          forkSessionSnapshotJsonl,
+          agents,
+          ctx.cwd,
+          signal,
+          onUpdate,
+          makeDetails,
+        );
       },
 
       renderCall: (args, theme) => renderCall(args, theme),
-      renderResult: (result, { expanded }, theme) =>
-        renderResult(result, expanded, theme),
+      renderResult: (result, { expanded, isPartial }, theme) =>
+        renderResult(result, expanded, isPartial, theme),
     });
   }
 
@@ -502,29 +559,88 @@ Use single mode for one task, parallel mode when tasks are independent and can r
   async function executeSingle(
     agentName: string,
     task: string,
+    summary: string,
     cwd: string | undefined,
     delegationMode: DelegationMode,
+    inheritedThinking: string,
     forkSessionSnapshotJsonl: string | undefined,
     agents: AgentConfig[],
-    defaultCwd: string,
+    baseCwd: string,
     signal: AbortSignal | undefined,
     onUpdate: ((partial: any) => void) | undefined,
     makeDetails: ReturnType<typeof makeDetailsFactory>,
   ) {
-    const result = await runAgent({
-      cwd: defaultCwd,
-      agents,
-      agentName,
+    const agent = agents.find((candidate) => candidate.name === agentName);
+    const now = Date.now();
+    let latestResult: SingleResult = {
+      agent: agentName,
+      agentSource: agent?.source ?? "unknown",
       task,
-      taskCwd: cwd,
-      delegationMode,
-      forkSessionSnapshotJsonl,
-      parentDepth: currentDepth,
-      maxDepth,
-      signal,
-      onUpdate,
-      makeDetails: makeDetails("single"),
-    });
+      summary,
+      exitCode: -1,
+      messages: [],
+      stderr: "",
+      usage: emptyUsage(),
+      startedAt: now,
+      updatedAt: now,
+      model: agent?.model,
+      provider: agent?.model?.includes("/") ? agent.model.split("/")[0] : undefined,
+      thinking: agent?.thinking ?? inheritedThinking,
+    };
+
+    const emitSingleProgress = (current: SingleResult) => {
+      if (!onUpdate) return;
+      onUpdate({
+        content: [
+          {
+            type: "text",
+            text: getFinalOutput(current.messages) || "(running...)",
+          },
+        ],
+        details: makeDetails("single")([current]),
+      });
+    };
+
+    const handleChildUpdate = onUpdate
+      ? (partial: any) => {
+          const streamed = partial?.details?.results?.[0];
+          if (streamed) latestResult = streamed as SingleResult;
+          onUpdate(partial);
+        }
+      : undefined;
+
+    let heartbeat: NodeJS.Timeout | undefined;
+    if (onUpdate) {
+      emitSingleProgress(latestResult);
+      heartbeat = setInterval(() => {
+        if (latestResult.exitCode === -1) emitSingleProgress(latestResult);
+      }, SUBAGENT_UI_REFRESH_MS);
+    }
+
+    const result = await (async () => {
+      try {
+        const finalResult = await runAgent({
+          cwd: baseCwd,
+          agents,
+          agentName,
+          task,
+          summary,
+          taskCwd: cwd,
+          delegationMode,
+          inheritedThinking,
+          forkSessionSnapshotJsonl,
+          parentDepth: currentDepth,
+          maxDepth,
+          signal,
+          onUpdate: handleChildUpdate,
+          makeDetails: makeDetails("single"),
+        });
+        latestResult = finalResult;
+        return finalResult;
+      } finally {
+        if (heartbeat) clearInterval(heartbeat);
+      }
+    })();
 
     if (isResultError(result)) {
       const errorMsg =
@@ -555,11 +671,12 @@ Use single mode for one task, parallel mode when tasks are independent and can r
   }
 
   async function executeParallel(
-    tasks: Array<{ agent: string; task: string; cwd?: string }>,
+    tasks: Array<{ agent: string; task: string; summary: string; cwd?: string }>,
     delegationMode: DelegationMode,
+    inheritedThinking: string,
     forkSessionSnapshotJsonl: string | undefined,
     agents: AgentConfig[],
-    defaultCwd: string,
+    baseCwd: string,
     signal: AbortSignal | undefined,
     onUpdate: ((partial: any) => void) | undefined,
     makeDetails: ReturnType<typeof makeDetailsFactory>,
@@ -577,15 +694,25 @@ Use single mode for one task, parallel mode when tasks are independent and can r
     }
 
     // Initialize placeholder results for streaming
-    const allResults: SingleResult[] = tasks.map((t) => ({
-      agent: t.agent,
-      agentSource: "unknown" as const,
-      task: t.task,
-      exitCode: -1,
-      messages: [],
-      stderr: "",
-      usage: emptyUsage(),
-    }));
+    const now = Date.now();
+    const allResults: SingleResult[] = tasks.map((t) => {
+      const agent = agents.find((candidate) => candidate.name === t.agent);
+      return {
+        agent: t.agent,
+        agentSource: agent?.source ?? "unknown",
+        task: t.task,
+        summary: t.summary,
+        exitCode: -1,
+        messages: [],
+        stderr: "",
+        usage: emptyUsage(),
+        startedAt: now,
+        updatedAt: now,
+        model: agent?.model,
+        provider: agent?.model?.includes("/") ? agent.model.split("/")[0] : undefined,
+        thinking: agent?.thinking ?? inheritedThinking,
+      };
+    });
 
     const emitProgress = () => {
       if (!onUpdate) return;
@@ -607,7 +734,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       emitProgress();
       heartbeat = setInterval(() => {
         if (allResults.some((r) => r.exitCode === -1)) emitProgress();
-      }, PARALLEL_HEARTBEAT_MS);
+      }, SUBAGENT_UI_REFRESH_MS);
     }
 
     let results: SingleResult[];
@@ -617,12 +744,14 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         MAX_CONCURRENCY,
         async (t, index) => {
           const result = await runAgent({
-            cwd: defaultCwd,
+            cwd: baseCwd,
             agents,
             agentName: t.agent,
             task: t.task,
+            summary: t.summary,
             taskCwd: t.cwd,
             delegationMode,
+            inheritedThinking,
             forkSessionSnapshotJsonl,
             parentDepth: currentDepth,
             maxDepth,

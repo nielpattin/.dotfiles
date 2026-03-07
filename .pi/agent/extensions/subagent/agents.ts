@@ -63,7 +63,7 @@ function parseAgentFile(filePath: string, source: "user" | "project"): AgentConf
 		parsed = parseFrontmatter<Record<string, unknown>>(content);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		console.warn(`[pi-subagent] Skipping invalid agent file "${filePath}": ${message}`);
+		console.warn(`[pi-task] Skipping invalid agent file "${filePath}": ${message}`);
 		return null;
 	}
 
@@ -89,7 +89,7 @@ function parseAgentFile(filePath: string, source: "user" | "project"): AgentConf
 		if (parsedTools.length > 0) tools = parsedTools;
 	} else if (frontmatter.tools !== undefined) {
 		console.warn(
-			`[pi-subagent] Ignoring invalid tools field in "${filePath}". Expected a comma-separated string or string array.`,
+			`[pi-task] Ignoring invalid tools field in "${filePath}". Expected a comma-separated string or string array.`,
 		);
 	}
 
@@ -108,7 +108,7 @@ function parseAgentFile(filePath: string, source: "user" | "project"): AgentConf
 		if (parsedSkills.length > 0) skills = parsedSkills;
 	} else if (frontmatter.skills !== undefined) {
 		console.warn(
-			`[pi-subagent] Ignoring invalid skills field in "${filePath}". Expected a comma-separated string or string array.`,
+			`[pi-task] Ignoring invalid skills field in "${filePath}". Expected a comma-separated string or string array.`,
 		);
 	}
 

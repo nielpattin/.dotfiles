@@ -23,8 +23,8 @@ import {
 } from "./types.js";
 
 const SIGKILL_TIMEOUT_MS = 5000;
-const SUBAGENT_DEPTH_ENV = "PI_SUBAGENT_DEPTH";
-const SUBAGENT_MAX_DEPTH_ENV = "PI_SUBAGENT_MAX_DEPTH";
+const TASK_DEPTH_ENV = "PI_TASK_DEPTH";
+const TASK_MAX_DEPTH_ENV = "PI_TASK_MAX_DEPTH";
 const PI_OFFLINE_ENV = "PI_OFFLINE";
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
@@ -224,7 +224,7 @@ function formatSkillLoadSummary(skillLoad: SkillLoadInfo): string {
   const missing =
     skillLoad.missing.length > 0 ? skillLoad.missing.join(", ") : "(none)";
 
-  return `[pi-subagent] skill preload cwd="${skillLoad.lookupCwd}" requested=[${requested}] loaded=[${loaded}] missing=[${missing}]`;
+  return `[pi-task] skill preload cwd="${skillLoad.lookupCwd}" requested=[${requested}] loaded=[${loaded}] missing=[${missing}]`;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +276,17 @@ function processJsonLine(line: string, result: SingleResult): boolean {
     return false;
   }
 
+  const now = Date.now();
+  result.updatedAt = now;
+
+  if (event.type === "session") {
+    if (typeof event.id === "string") result.sessionId = event.id;
+    if (typeof event.name === "string" && event.name.trim()) {
+      result.sessionName = event.name.trim();
+    }
+    return true;
+  }
+
   if (event.type === "tool_execution_start") {
     const toolCallId =
       typeof event.toolCallId === "string" ? event.toolCallId : undefined;
@@ -286,6 +297,13 @@ function processJsonLine(line: string, result: SingleResult): boolean {
         : {};
 
     if (toolName) {
+      result.activeTool = {
+        toolCallId,
+        name: toolName,
+        args: toolArgs,
+        startedAt: now,
+      };
+
       const alreadySeen = result.messages.some((msg: any) => {
         if (!msg || msg.role !== "assistant" || !Array.isArray(msg.content)) {
           return false;
@@ -310,10 +328,44 @@ function processJsonLine(line: string, result: SingleResult): boolean {
         result.messages.push({
           role: "assistant",
           content: [syntheticToolCall],
-          timestamp: Date.now(),
+          timestamp: now,
         } as unknown as Message);
+      }
+      return true;
+    }
+  }
+
+  if (event.type === "tool_execution_end") {
+    const toolCallId =
+      typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+    const toolName = typeof event.toolName === "string" ? event.toolName : undefined;
+    const activeTool = result.activeTool;
+
+    if (activeTool) {
+      const sameCall = toolCallId && activeTool.toolCallId === toolCallId;
+      const sameName = toolName && activeTool.name === toolName;
+      if (sameCall || sameName || (!toolCallId && !toolName)) {
+        result.lastTool = {
+          ...activeTool,
+          finishedAt: now,
+        };
+        result.activeTool = undefined;
         return true;
       }
+    }
+
+    if (toolName) {
+      result.lastTool = {
+        toolCallId,
+        name: toolName,
+        args:
+          typeof event.args === "object" && event.args !== null
+            ? (event.args as Record<string, unknown>)
+            : {},
+        startedAt: now,
+        finishedAt: now,
+      };
+      return true;
     }
   }
 
@@ -333,6 +385,9 @@ function processJsonLine(line: string, result: SingleResult): boolean {
         result.usage.contextTokens = usage.totalTokens || 0;
       }
       if (!result.model && msg.model) result.model = msg.model;
+      if (!result.provider && typeof (msg as any).provider === "string") {
+        result.provider = (msg as any).provider;
+      }
       if (msg.stopReason) result.stopReason = msg.stopReason;
       if (msg.errorMessage) result.errorMessage = msg.errorMessage;
     }
@@ -357,6 +412,7 @@ function buildPiArgs(
   prompt: string,
   delegationMode: DelegationMode,
   forkSessionPath: string | null,
+  thinkingLevel: string | undefined,
 ): string[] {
   const args: string[] = ["--mode", "json", "-p"];
 
@@ -367,7 +423,7 @@ function buildPiArgs(
   }
 
   if (agent.model) args.push("--model", agent.model);
-  if (agent.thinking) args.push("--thinking", agent.thinking);
+  if (thinkingLevel) args.push("--thinking", thinkingLevel);
   if (agent.tools && agent.tools.length > 0)
     args.push("--tools", agent.tools.join(","));
   if (systemPromptPath) args.push("--append-system-prompt", systemPromptPath);
@@ -380,7 +436,7 @@ function buildPiArgs(
 // ---------------------------------------------------------------------------
 
 export interface RunAgentOptions {
-  /** Fallback working directory when the task doesn't specify one. */
+  /** Base working directory when the task doesn't specify one. */
   cwd: string;
   /** All available agent configs. */
   agents: AgentConfig[];
@@ -388,10 +444,14 @@ export interface RunAgentOptions {
   agentName: string;
   /** Task description. */
   task: string;
+  /** Compact display summary for the UI card header. */
+  summary: string;
   /** Optional override working directory. */
   taskCwd?: string;
   /** Context mode: spawn (fresh) or fork (session snapshot + task). */
   delegationMode: DelegationMode;
+  /** Effective thinking level inherited from the parent session when the agent file omits it. */
+  inheritedThinking?: string;
   /** Serialized parent session snapshot used when delegationMode is "fork". */
   forkSessionSnapshotJsonl?: string;
   /** Current delegation depth of the caller process. */
@@ -417,8 +477,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     agents,
     agentName,
     task,
+    summary,
     taskCwd,
     delegationMode,
+    inheritedThinking,
     forkSessionSnapshotJsonl,
     parentDepth,
     maxDepth,
@@ -427,17 +489,22 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     makeDetails,
   } = opts;
 
+  const now = Date.now();
   const agent = agents.find((a) => a.name === agentName);
+  const effectiveThinking = agent?.thinking ?? inheritedThinking;
   if (!agent) {
     const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
     return {
       agent: agentName,
       agentSource: "unknown",
       task,
+      summary,
       exitCode: 1,
       messages: [],
       stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
       usage: emptyUsage(),
+      startedAt: now,
+      updatedAt: now,
     };
   }
 
@@ -449,12 +516,16 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       agent: agentName,
       agentSource: agent.source,
       task,
+      summary,
       exitCode: 1,
       messages: [],
       stderr:
         "Cannot run in fork mode: missing parent session snapshot context.",
       usage: emptyUsage(),
+      startedAt: now,
+      updatedAt: now,
       model: agent.model,
+      thinking: effectiveThinking,
       stopReason: "error",
       errorMessage:
         "Cannot run in fork mode: missing parent session snapshot context.",
@@ -465,11 +536,15 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     agent: agentName,
     agentSource: agent.source,
     task,
+    summary,
     exitCode: -1,
     messages: [],
     stderr: "",
     usage: emptyUsage(),
+    startedAt: now,
+    updatedAt: now,
     model: agent.model,
+    thinking: effectiveThinking,
   };
 
   const emitUpdate = () => {
@@ -528,14 +603,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       result.stderr += `${taskPrompt.warnings.join("\n")}\n`;
     }
 
-    emitUpdate();
-
     const piArgs = buildPiArgs(
       agent,
       promptTmpPath,
       taskPrompt.prompt,
       delegationMode,
       forkSessionTmpPath,
+      effectiveThinking,
     );
     const spawnTarget = getPiSpawnTarget(piArgs);
     if (!spawnTarget) {
@@ -544,15 +618,15 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
         exitCode: 1,
         stopReason: "error",
         errorMessage:
-          "Failed to resolve Pi CLI script on Windows. Cannot start subagent.",
+          "Failed to resolve Pi CLI script on Windows. Cannot start task.",
         stderr:
-          "Failed to resolve Pi CLI script on Windows. Cannot start subagent.",
+          "Failed to resolve Pi CLI script on Windows. Cannot start task.",
       };
     }
 
     let wasAborted = false;
 
-    const exitCode = await new Promise<number>((resolve) => {
+    const runPromise = new Promise<number>((resolve) => {
       const nextDepth = Math.max(0, Math.floor(parentDepth)) + 1;
       const propagatedMaxDepth = Math.max(0, Math.floor(maxDepth));
       const proc = spawn(spawnTarget.command, spawnTarget.args, {
@@ -561,8 +635,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           ...process.env,
-          [SUBAGENT_DEPTH_ENV]: String(nextDepth),
-          [SUBAGENT_MAX_DEPTH_ENV]: String(propagatedMaxDepth),
+          [TASK_DEPTH_ENV]: String(nextDepth),
+          [TASK_MAX_DEPTH_ENV]: String(propagatedMaxDepth),
           [PI_OFFLINE_ENV]: "1",
         },
       });
@@ -581,21 +655,24 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       });
 
       proc.stderr.on("data", (chunk: Buffer) => {
+        result.updatedAt = Date.now();
         result.stderr += chunk.toString();
       });
 
       proc.on("close", (code) => {
+        result.updatedAt = Date.now();
         if (buffer.trim()) flushLine(buffer);
         resolve(code ?? 0);
       });
 
       proc.on("error", (err) => {
+        result.updatedAt = Date.now();
         const message = err instanceof Error ? err.message : String(err);
         if (!result.stderr.includes(message)) {
           result.stderr += `Spawn error: ${message}\n`;
         }
         result.stopReason = "error";
-        result.errorMessage = `Failed to start subagent process (${spawnTarget.command}).`;
+        result.errorMessage = `Failed to start task process (${spawnTarget.command}).`;
         resolve(1);
       });
 
@@ -613,12 +690,15 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       }
     });
 
+    const exitCode = await runPromise;
+
     result.exitCode = exitCode;
+    result.updatedAt = Date.now();
     if (wasAborted) {
       result.exitCode = 130;
       result.stopReason = "aborted";
-      result.errorMessage = "Subagent was aborted.";
-      if (!result.stderr.trim()) result.stderr = "Subagent was aborted.";
+      result.errorMessage = "Task was aborted.";
+      if (!result.stderr.trim()) result.stderr = "Task was aborted.";
     }
     return result;
   } finally {

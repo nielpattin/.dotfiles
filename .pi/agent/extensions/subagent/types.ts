@@ -30,17 +30,35 @@ export interface SkillLoadInfo {
 	warnings: string[];
 }
 
+/** Current or most recent tool activity observed from the child session stream. */
+export interface ToolActivity {
+	toolCallId?: string;
+	name: string;
+	args: Record<string, unknown>;
+	startedAt: number;
+	finishedAt?: number;
+}
+
 /** Result of a single subagent invocation. */
 export interface SingleResult {
 	agent: string;
 	agentSource: "user" | "project" | "unknown";
 	task: string;
+	summary: string;
 	exitCode: number;
 	messages: Message[];
 	stderr: string;
 	usage: UsageStats;
+	startedAt: number;
+	updatedAt: number;
+	sessionId?: string;
+	sessionName?: string;
 	skillLoad?: SkillLoadInfo;
+	activeTool?: ToolActivity;
+	lastTool?: ToolActivity;
 	model?: string;
+	provider?: string;
+	thinking?: string;
 	stopReason?: string;
 	errorMessage?: string;
 }
@@ -87,7 +105,7 @@ function isObjectPart(part: unknown): part is Record<string, unknown> {
 }
 
 /** Extract the last assistant text from a message history.
- * Falls back to the last toolResult text when assistant text is absent.
+ * If assistant text is absent, return the last toolResult text.
  */
 export function getFinalOutput(messages: Message[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
