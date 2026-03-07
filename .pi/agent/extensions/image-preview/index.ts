@@ -4,7 +4,7 @@
  * What it does:
  * - Converts pasted Windows image file paths in user input into real image attachments.
  * - Renders image previews inline under the corresponding user message in interactive TUI.
- * - Supports Sixel on Windows with native fallback rendering.
+ * - Supports Sixel previews on Windows.
  *
  * Notes:
  * - This file intentionally combines conversion + preview logic in one place.
@@ -22,7 +22,6 @@ import {
 import {
   calculateImageRows,
   getImageDimensions,
-  Image,
   truncateToWidth,
   visibleWidth,
 } from "@mariozechner/pi-tui";
@@ -32,7 +31,6 @@ import { convertImageToSixelSequence, ensureSixelModuleAvailable } from "./sixel
 const DEFAULT_MAX_WIDTH_CELLS = 60;
 const MAX_IMAGES_PER_MESSAGE = 3;
 const SIXEL_IMAGE_LINE_MARKER = "\x1b_Gm=0;\x1b\\";
-const PREVIEW_ITEM_CACHE_LIMIT = 64;
 
 function shouldAttemptSixelRendering(): boolean {
   return process.platform === "win32";
@@ -45,13 +43,8 @@ type ImagePayload = {
 };
 
 type ImagePreviewItem = {
-  protocol: "sixel" | "native";
-  mimeType: string;
   rows: number;
-  maxWidthCells: number;
-  sixelSequence?: string;
-  data?: string;
-  warning?: string;
+  sixelSequence: string;
 };
 
 type UserMessageRenderFn = (width: number) => string[];
@@ -65,6 +58,7 @@ type UserMessagePrototype = {
 type UserMessageInstance = {
   __piImageToolsInlineAssigned?: boolean;
   __piImageToolsInlineItems?: ImagePreviewItem[];
+  invalidate?: () => void;
 };
 
 type InteractiveModePrototype = {
@@ -88,10 +82,13 @@ interface InteractiveModeLike {
   chatContainer?: {
     children?: unknown[];
   };
+  ui?: {
+    invalidate?: () => void;
+    requestRender?: () => void;
+  };
 }
 
 function estimateImageRows(image: ImagePayload, maxWidthCells: number): number {
-
   const dimensions = getImageDimensions(image.data, image.mimeType);
   if (!dimensions) {
     return 12;
@@ -100,84 +97,32 @@ function estimateImageRows(image: ImagePayload, maxWidthCells: number): number {
   return Math.max(1, Math.min(calculateImageRows(dimensions, maxWidthCells), 80));
 }
 
-const previewItemCache = new Map<string, ImagePreviewItem>();
-
-function buildPreviewCacheKey(image: ImagePayload, sixelMode: string): string {
-  const head = image.data.slice(0, 64);
-  const tail = image.data.slice(-64);
-  return `${image.mimeType}|${image.data.length}|${head}|${tail}|${sixelMode}`;
-}
-
-function rememberPreviewItem(key: string, item: ImagePreviewItem): void {
-  if (previewItemCache.size >= PREVIEW_ITEM_CACHE_LIMIT) {
-    const oldest = previewItemCache.keys().next().value;
-    if (oldest) {
-      previewItemCache.delete(oldest);
-    }
-  }
-  previewItemCache.set(key, item);
-}
-
 function buildPreviewItems(images: readonly ImagePayload[]): ImagePreviewItem[] {
   const selectedImages = images.slice(0, MAX_IMAGES_PER_MESSAGE);
-  if (selectedImages.length === 0) {
+  if (selectedImages.length === 0 || !shouldAttemptSixelRendering()) {
     return [];
   }
 
-  const attemptSixel = shouldAttemptSixelRendering();
-  const sixelState = attemptSixel ? ensureSixelModuleAvailable() : undefined;
-  const sixelMode = sixelState?.available
-    ? `sixel:${sixelState.version ?? "unknown"}`
-    : `native:${sixelState?.reason ?? "no-sixel"}`;
+  const sixelState = ensureSixelModuleAvailable();
+  if (!sixelState.available) {
+    return [];
+  }
 
-  return selectedImages.map((image) => {
-    const cacheKey = buildPreviewCacheKey(image, sixelMode);
-    const cached = previewItemCache.get(cacheKey);
-    if (cached) {
-      return cached;
+  const items: ImagePreviewItem[] = [];
+
+  for (const image of selectedImages) {
+    const conversion = convertImageToSixelSequence(image);
+    if (!conversion.sequence) {
+      continue;
     }
 
-    const rows = estimateImageRows(image, DEFAULT_MAX_WIDTH_CELLS);
+    items.push({
+      rows: estimateImageRows(image, DEFAULT_MAX_WIDTH_CELLS),
+      sixelSequence: conversion.sequence,
+    });
+  }
 
-    let item: ImagePreviewItem;
-
-    if (attemptSixel && sixelState?.available) {
-      const conversion = convertImageToSixelSequence(image);
-      if (conversion.sequence) {
-        item = {
-          protocol: "sixel",
-          mimeType: image.mimeType,
-          rows,
-          maxWidthCells: DEFAULT_MAX_WIDTH_CELLS,
-          sixelSequence: conversion.sequence,
-        };
-      } else {
-        item = {
-          protocol: "native",
-          mimeType: image.mimeType,
-          rows,
-          maxWidthCells: DEFAULT_MAX_WIDTH_CELLS,
-          data: image.data,
-          warning: conversion.error,
-        };
-      }
-    } else {
-      item = {
-        protocol: "native",
-        mimeType: image.mimeType,
-        rows,
-        maxWidthCells: DEFAULT_MAX_WIDTH_CELLS,
-        data: image.data,
-        warning:
-          attemptSixel && sixelState && !sixelState.available
-            ? `Sixel preview unavailable: ${sixelState.reason || "missing PowerShell Sixel module."}`
-            : undefined,
-      };
-    }
-
-    rememberPreviewItem(cacheKey, item);
-    return item;
-  });
+  return items;
 }
 
 function sanitizeRows(rows: number): number {
@@ -189,25 +134,6 @@ function buildSixelLines(sequence: string, rows: number): string[] {
   const lines = Array.from({ length: Math.max(0, safeRows - 1) }, () => "");
   const moveUp = safeRows > 1 ? `\x1b[${safeRows - 1}A` : "";
   return [...lines, `${SIXEL_IMAGE_LINE_MARKER}${moveUp}${sequence}`];
-}
-
-function buildNativeLines(item: ImagePreviewItem, width: number): string[] {
-  if (!item.data) {
-    return [];
-  }
-
-  const image = new Image(
-    item.data,
-    item.mimeType,
-    {
-      fallbackColor: (text: string) => text,
-    },
-    {
-      maxWidthCells: item.maxWidthCells,
-    },
-  );
-
-  return image.render(Math.max(8, width));
 }
 
 function isInlineImageLine(line: string): boolean {
@@ -240,16 +166,7 @@ function renderPreviewLines(items: readonly ImagePreviewItem[], width: number): 
 
   for (const item of items) {
     lines.push("");
-
-    if (item.protocol === "sixel" && item.sixelSequence) {
-      lines.push(...buildSixelLines(item.sixelSequence, item.rows));
-    } else {
-      lines.push(...buildNativeLines(item, width));
-    }
-
-    if (item.warning) {
-      lines.push(...item.warning.split(/\r?\n/).filter((line) => line.length > 0));
-    }
+    lines.push(...buildSixelLines(item.sixelSequence, item.rows));
   }
 
   return fitLinesToWidth(lines, width);
@@ -353,14 +270,10 @@ function patchUserMessageRender(): void {
   prototype.__piImageToolsInlinePatched = true;
 }
 
-function assignPreviewItemsToLatestUserMessage(
-  mode: InteractiveModeLike,
-  fromChildIndex: number,
-  previewItems: ImagePreviewItem[],
-): void {
+function findLatestUserMessageInRange(mode: InteractiveModeLike, fromChildIndex: number): UserMessageInstance | null {
   const children = mode.chatContainer?.children;
   if (!Array.isArray(children) || children.length === 0) {
-    return;
+    return null;
   }
 
   const start = Math.max(0, fromChildIndex);
@@ -370,11 +283,16 @@ function assignPreviewItemsToLatestUserMessage(
       continue;
     }
 
-    const instance = child as unknown as UserMessageInstance;
-    instance.__piImageToolsInlineItems = previewItems;
-    instance.__piImageToolsInlineAssigned = true;
-    return;
+    return child as unknown as UserMessageInstance;
   }
+
+  return null;
+}
+
+function requestModeRerender(mode: InteractiveModeLike, instance: UserMessageInstance): void {
+  instance.invalidate?.();
+  mode.ui?.invalidate?.();
+  mode.ui?.requestRender?.();
 }
 
 function patchInteractiveMode(): void {
@@ -398,14 +316,6 @@ function patchInteractiveMode(): void {
       : 0;
 
     const imagePayloads = extractImagePayloads(message);
-    let previewItems: ImagePreviewItem[] = [];
-    if (imagePayloads.length > 0) {
-      try {
-        previewItems = buildPreviewItems(imagePayloads);
-      } catch {
-        previewItems = [];
-      }
-    }
 
     const original = prototype.__piImageToolsOriginalAddMessageToChat;
     if (!original) {
@@ -414,11 +324,31 @@ function patchInteractiveMode(): void {
 
     original.call(this, message, options);
 
-    if (previewItems.length === 0) {
+    if (imagePayloads.length === 0) {
       return;
     }
 
-    assignPreviewItemsToLatestUserMessage(mode, beforeCount, previewItems);
+    if (options) {
+      return;
+    }
+
+    const targetInstance = findLatestUserMessageInRange(mode, beforeCount);
+    if (!targetInstance) {
+      return;
+    }
+
+    try {
+      const previewItems = buildPreviewItems(imagePayloads);
+      if (previewItems.length === 0) {
+        return;
+      }
+
+      targetInstance.__piImageToolsInlineItems = previewItems;
+      targetInstance.__piImageToolsInlineAssigned = true;
+      requestModeRerender(mode, targetInstance);
+    } catch {
+      // preview failures should never break chat flow
+    }
   };
 
   prototype.__piImageToolsPreviewPatched = true;
@@ -522,22 +452,6 @@ function imagePayloadFromFilePath(filePath: string): ImagePayload | null {
 }
 
 export default function imagePreviewExtension(pi: ExtensionAPI): void {
-  let warnedSixelSetup = false;
-
-  pi.on("session_start", async (_event, ctx) => {
-    if (!shouldAttemptSixelRendering()) {
-      return;
-    }
-
-    const availability = ensureSixelModuleAvailable();
-    if (!availability.available && !warnedSixelSetup && ctx.hasUI) {
-      warnedSixelSetup = true;
-      ctx.ui.notify(
-        `Image preview fallback active: ${availability.reason || "Sixel module unavailable."}`,
-        "warning",
-      );
-    }
-  });
   registerInlineUserImagePreview(pi);
 
   pi.on("input", async (event) => {
