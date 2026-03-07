@@ -1,51 +1,13 @@
 {
-  "lastChangelogVersion": "0.56.2",
+  "lastChangelogVersion": "0.56.3",
   "hideThinkingBlock": false,
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.4",
   "editorPaddingX": 0,
-  "defaultThinkingLevel": "xhigh",
+  "defaultThinkingLevel": "high",
   "theme": "catppuccin-mocha",
   "transport": "sse",
-  "packages": [
-    {
-      "source": "git:github.com/nielpattin/pi-sub",
-      "extensions": [
-        "-packages\\sub-bar\\index.ts",
-        "-packages\\sub-core\\index.ts"
-      ]
-    },
-    {
-      "source": "git:github.com/nicobailon/pi-subagents",
-      "extensions": [
-        "-index.ts",
-        "-notify.ts"
-      ]
-    },
-    {
-      "source": "https://github.com/nicobailon/visual-explainer",
-      "skills": [
-        "-CHANGELOG.md",
-        "-README.md",
-        "-SKILL.md"
-      ],
-      "prompts": [
-        "-prompts\\diff-review.md",
-        "-prompts\\fact-check.md",
-        "-prompts\\generate-slides.md",
-        "-prompts\\generate-visual-plan.md",
-        "-prompts\\generate-web-diagram.md",
-        "-prompts\\plan-review.md",
-        "-prompts\\project-recap.md"
-      ]
-    },
-    {
-      "source": "npm:pi-mcporter",
-      "extensions": [
-        "+dist\\index.js"
-      ]
-    }
-  ],
+  "packages": [],
   "skills": [
     "-..\\..\\.agents\\skills\\prd\\SKILL.md",
     "-..\\..\\.agents\\skills\\prd-task\\SKILL.md",
@@ -60,12 +22,9 @@
     "-..\\..\\.agents\\skills\\commit-message-generator\\SKILL.md"
   ],
   "extensions": [
-    "-extensions\\modes\\index.ts",
-    "+extensions\\permissions\\index.ts",
     "-extensions\\command-palette\\index.ts",
     "-extensions\\figma-start.ts",
     "-extensions\\handoff\\index.ts",
-    "-extensions\\pi-subagent\\index.ts",
     "-extensions\\prompt-stash.ts",
     "+extensions\\smart-sessions\\index.ts",
     "+extensions\\agents-discovery\\index.ts",
@@ -77,29 +36,18 @@
     "+extensions\\tab-status\\index.ts",
     "-extensions\\theme-cycle\\index.ts",
     "+extensions\\tools\\index.ts",
-    "+extensions\\usage-extension\\index.ts",
-    "+extensions\\you-are-right-killer.ts",
+    "-extensions\\usage-extension\\index.ts",
+    "-extensions\\you-are-right-killer.ts",
     "+extensions\\working-vibes\\index.ts",
-    "+extensions\\welcome\\index.ts"
+    "-extensions\\welcome\\index.ts",
+    "+extensions\\subagent\\index.ts"
   ],
-  "workingVibeModel": "openai-codex/gpt-5.3-codex",
   "workingVibe": "game-dev",
-  "compaction": {
-    "enabled": true
-  },
   "images": {
     "autoResize": true
   },
-  "showHardwareCursor": false,
-  "doubleEscapeAction": "tree",
   "workingVibeMode": "file",
   "workingVibeRefreshInterval": 5,
-  "terminal": {
-    "clearOnShrink": false
-  },
-  "nodeRestore": {
-    "silentCheckpoints": false
-  },
   "themes": [
     "-themes\\dracula.json",
     "-themes\\everforest.json",
@@ -111,7 +59,7 @@
     "-themes\\synthwave.json",
     "+themes\\tokyo-night.json"
   ],
-  "followUpMode": "all",
-  "steeringMode": "all",
-  "autocompleteMaxVisible": 10
+  "quietStartup": false,
+  "doubleEscapeAction": "none",
+  "treeFilterMode": "user-only"
 }

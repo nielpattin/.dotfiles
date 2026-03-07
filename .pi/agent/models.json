@@ -1,5 +1,37 @@
 {
   "providers": {
+     "vivgrid": {
+      "baseUrl": "https://api.vivgrid.com/v1",
+      "api": "openai-completions",
+      "apiKey": "VIVGRID_API_KEY",
+      "authHeader": true,
+      "models": [
+        {
+          "id": "Kimi-K2.5",
+          "name": "Kimi-K2.5",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 256000,
+          "maxTokens": 256000,
+          "cost": {
+            "input": 1.25,
+            "output": 10,
+            "cacheRead": 0.125,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsDeveloperRole": false,
+            "supportsReasoningEffort": false,
+            "supportsUsageInStreaming": false,
+            "supportsStore": false,
+            "maxTokensField": "max_tokens",
+            "supportsStrictMode": false
+          }
+        }
+      ]
+    },
     "llm-api-key-proxy": {
       "baseUrl": "http://127.0.0.1:8989/v1",
       "api": "openai-completions",

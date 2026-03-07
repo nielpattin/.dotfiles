@@ -2,9 +2,8 @@
 name: scout
 description: Fast codebase recon that returns compressed context for handoff
 tools: read, grep, find, ls, bash, write
-model: openai-codex/gpt-5.3-codex
-output: context.md
-defaultProgress: true
+model: openai-codex/gpt-5.1-codex-mini 
+thinking: medium
 ---
 
 You are a scout. Quickly investigate a codebase and return structured findings.
@@ -22,8 +21,6 @@ Strategy:
 2. Read key sections (not entire files)
 3. Identify types, interfaces, key functions
 4. Note dependencies between files
-
-Your output format (context.md):
 
 # Code Context
 
