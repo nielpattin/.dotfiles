@@ -1,347 +1,385 @@
-import type { ExtensionAPI, ReadonlyFooterDataProvider, Theme } from "@mariozechner/pi-coding-agent";
+import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import type { ExtensionAPI, ReadonlyFooterDataProvider, Theme, ThemeColor } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type EditorTheme } from "@mariozechner/pi-tui";
 
-import type { ColorScheme, SegmentContext, StatusLinePreset, StatusLineSegmentId } from "./types.js";
-import { getPreset, PRESETS } from "./presets.js";
-import { getSeparator } from "./separators.js";
-import { renderSegment } from "./segments.js";
-import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./vcs-status.js";
-import { getDefaultColors } from "./theme.js";
-
-interface PowerlineConfig {
-  preset: StatusLinePreset;
-}
-
-let config: PowerlineConfig = {
-  preset: "default",
+type ColorValue = ThemeColor | `#${string}`;
+type SemanticColor = "pi" | "model" | "path" | "gitDirty" | "gitClean" | "thinking" | "context" | "contextWarn" | "contextError" | "cost";
+type SegmentId = "pi" | "model" | "thinking" | "cost" | "path" | "git" | "context_pct" | "extension_statuses";
+type ColorScheme = Partial<Record<SemanticColor, ColorValue>>;
+type GitStatus = { branch: string | null; staged: number; unstaged: number; untracked: number };
+type SegmentContext = {
+  model: { id: string; name?: string; reasoning?: boolean; contextWindow?: number } | undefined;
+  cwd: string;
+  thinkingLevel: string;
+  cost: number;
+  contextPercent: number;
+  contextUsed: number;
+  contextWindow: number;
+  git: GitStatus;
+  extensionStatuses: ReadonlyMap<string, string>;
+  theme: Theme;
+  colors: ColorScheme;
 };
 
-function renderSegmentWithWidth(
-  segId: StatusLineSegmentId,
-  ctx: SegmentContext,
-): { content: string; width: number; visible: boolean } {
-  const rendered = renderSegment(segId, ctx);
-  if (!rendered.visible || !rendered.content) {
-    return { content: "", width: 0, visible: false };
+type CachedGitStatus = Omit<GitStatus, "branch"> & { timestamp: number };
+type CachedBranch = { branch: string | null; timestamp: number };
+
+const COLORS: Required<ColorScheme> = {
+  pi: "accent",
+  model: "#d787af",
+  path: "#00afaf",
+  gitDirty: "warning",
+  gitClean: "success",
+  thinking: "muted",
+  context: "dim",
+  contextWarn: "warning",
+  contextError: "error",
+  cost: "text",
+};
+
+const ICONS = {
+  pi: "\uE22C",
+  model: "\uEC19",
+  thinking: "\uF0EB",
+  folder: "\uF115",
+  branch: "\uF126",
+  git: "\uF1D3",
+} as const;
+
+const SEG_LEFT: SegmentId[] = ["pi", "model", "thinking", "cost"];
+const SEG_RIGHT: SegmentId[] = ["path", "git", "context_pct"];
+const SEG_SECONDARY: SegmentId[] = ["extension_statuses"];
+const THINK_LABELS: Record<string, string> = { off: "off", minimal: "min", low: "low", medium: "med", high: "high", xhigh: "xhigh" };
+const GIT_BRANCH_PATTERNS = [
+  /\bgit\s+(checkout|switch|branch\s+-[dDmM]|merge|rebase|pull|reset|worktree)/,
+  /\bgit\s+stash\s+(pop|apply)/,
+] as const;
+const THEME_PATH = join(dirname(fileURLToPath(import.meta.url)), "theme.json");
+const SEPARATOR = "›";
+const GIT_STATUS_TTL_MS = 1000;
+const GIT_BRANCH_TTL_MS = 500;
+const THEME_CACHE_TTL_MS = 5000;
+const EMPTY_SEGMENT = { content: "", visible: false } as const;
+
+let cachedStatus: CachedGitStatus | null = null;
+let cachedBranch: CachedBranch | null = null;
+let pendingStatusFetch: Promise<void> | null = null;
+let pendingBranchFetch: Promise<void> | null = null;
+let statusInvalidationCounter = 0;
+let branchInvalidationCounter = 0;
+let userThemeCache: ColorScheme | null = null;
+let userThemeCacheTime = 0;
+
+const withIcon = (icon: string, text: string) => (icon ? `${icon} ${text}` : text);
+const joinParts = (parts: string[], separator: string) => (parts.length ? parts.join(` ${separator} `) : "");
+const buildContent = (parts: string[], separator: string) => (parts.length ? ` ${joinParts(parts, separator)} ` : "");
+const groupWidth = (parts: { width: number }[], separatorWidth: number) =>
+  parts.length ? parts.reduce((sum, part) => sum + part.width, 0) + separatorWidth * (parts.length - 1) : 0;
+
+function loadUserTheme(): ColorScheme {
+  const now = Date.now();
+  if (userThemeCache && now - userThemeCacheTime < THEME_CACHE_TTL_MS) return userThemeCache;
+  try {
+    if (existsSync(THEME_PATH)) userThemeCache = JSON.parse(readFileSync(THEME_PATH, "utf-8")).colors ?? {};
+    else userThemeCache = {};
+  } catch {
+    userThemeCache = {};
   }
-  return { content: rendered.content, width: visibleWidth(rendered.content), visible: true };
+  userThemeCacheTime = now;
+  return userThemeCache ?? {};
 }
 
-function joinParts(parts: string[], sep: string): string {
-  return parts.length > 0 ? parts.join(` ${sep} `) : "";
+function applyColor(theme: Theme, color: ColorValue, text: string): string {
+  if (!color.startsWith("#")) return theme.fg(color as ThemeColor, text);
+  const hex = color.slice(1);
+  return `\x1b[38;2;${parseInt(hex.slice(0, 2), 16)};${parseInt(hex.slice(2, 4), 16)};${parseInt(hex.slice(4, 6), 16)}m${text}\x1b[0m`;
 }
 
-function buildContentFromParts(
-  parts: string[],
-  presetDef: ReturnType<typeof getPreset>,
-): string {
-  if (parts.length === 0) return "";
-  const separatorDef = getSeparator(presetDef.separator);
-  return ` ${joinParts(parts, separatorDef.left)} `;
+function color(ctx: SegmentContext, semantic: SemanticColor, text: string): string {
+  const user = loadUserTheme();
+  return applyColor(ctx.theme, user[semantic] ?? ctx.colors[semantic] ?? COLORS[semantic], text);
 }
 
-function groupWidth(parts: { width: number }[], sepWidth: number): number {
-  if (parts.length === 0) return 0;
-  const partsWidth = parts.reduce((sum, p) => sum + p.width, 0);
-  return partsWidth + sepWidth * (parts.length - 1);
+function formatTokens(n: number): string {
+  if (n < 1000) return `${n}`;
+  if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  return `${Math.round(n / 1_000_000)}M`;
 }
 
-function computeResponsiveLayout(
-  ctx: SegmentContext,
-  presetDef: ReturnType<typeof getPreset>,
-  availableWidth: number,
-): { topContent: string; secondaryContent: string } {
-  const separatorDef = getSeparator(presetDef.separator);
-  const leftSepWidth = visibleWidth(separatorDef.left) + 2;
+function getDisplayPath(cwd: string): string {
+  const pwd = cwd.replace(/\\/g, "/");
+  const home = (process.env.HOME || process.env.USERPROFILE || "").replace(/\\/g, "/").replace(/\/$/, "");
+  const basename = pwd.split("/").filter(Boolean).at(-1) || pwd;
+  if (!home) return basename;
 
-  const leftRendered = presetDef.leftSegments
-    .map((segId) => ({ ...renderSegmentWithWidth(segId, ctx), segId }))
-    .filter((seg) => seg.visible);
-  const rightRendered = presetDef.rightSegments
-    .map((segId) => ({ ...renderSegmentWithWidth(segId, ctx), segId }))
-    .filter((seg) => seg.visible);
-  const secondaryRendered = (presetDef.secondarySegments ?? [])
-    .map((segId) => ({ ...renderSegmentWithWidth(segId, ctx), segId }))
-    .filter((seg) => seg.visible);
+  const pwdLower = pwd.toLowerCase();
+  const homeLower = home.toLowerCase();
+  if (pwdLower === homeLower) return "~";
+  if (!pwdLower.startsWith(`${homeLower}/`)) return basename;
 
-  const leftTop = [...leftRendered];
-  const rightTop = [...rightRendered];
-  const topInnerWidth = Math.max(0, availableWidth - 2);
+  const parts = pwd.slice(home.length).replace(/^\//, "").split("/").filter(Boolean);
+  if (parts.length === 0) return "~";
+  if (parts.length === 1) return `~/${parts[0]}`;
+  if (parts.length === 2) return `~/${parts[0]}/${parts[1]}`;
+  return parts.at(-1) || "~";
+}
 
-  const getTopWidth = () => {
-    const leftWidth = groupWidth(leftTop, leftSepWidth);
-    const rightWidth = groupWidth(rightTop, leftSepWidth);
-    const betweenGroups = leftTop.length > 0 && rightTop.length > 0 ? 1 : 0;
-    return leftWidth + rightWidth + betweenGroups;
-  };
+function parseGitStatus(output: string): Omit<GitStatus, "branch"> {
+  let staged = 0, unstaged = 0, untracked = 0;
+  for (const line of output.split("\n")) {
+    if (!line) continue;
+    const x = line[0], y = line[1];
+    if (x === "?" && y === "?") { untracked++; continue; }
+    if (x && x !== " " && x !== "?") staged++;
+    if (y && y !== " ") unstaged++;
+  }
+  return { staged, unstaged, untracked };
+}
 
-  while (getTopWidth() > topInnerWidth) {
-    if (leftTop.length > 0) {
-      leftTop.pop();
-      continue;
+function runGit(args: string[], timeout = 200): Promise<string | null> {
+  return new Promise((resolve) => {
+    const proc = spawn("git", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let done = false;
+    const finish = (result: string | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    proc.stdout.on("data", (data) => { stdout += data.toString(); });
+    proc.on("close", (code) => finish(code === 0 ? stdout.trim() : null));
+    proc.on("error", () => finish(null));
+    const timer = setTimeout(() => { proc.kill(); finish(null); }, timeout);
+  });
+}
+
+async function fetchGitBranch(): Promise<string | null> {
+  const branch = await runGit(["branch", "--show-current"]);
+  if (branch === null) return null;
+  if (branch) return branch;
+  const sha = await runGit(["rev-parse", "--short", "HEAD"]);
+  return sha ? `${sha} (detached)` : "detached";
+}
+
+async function fetchGitStatus(): Promise<Omit<GitStatus, "branch"> | null> {
+  const output = await runGit(["status", "--porcelain"], 500);
+  return output === null ? null : parseGitStatus(output);
+}
+
+function getCurrentBranch(providerBranch: string | null): string | null {
+  const now = Date.now();
+  if (cachedBranch && now - cachedBranch.timestamp < GIT_BRANCH_TTL_MS) return cachedBranch.branch;
+  if (!pendingBranchFetch) {
+    const fetchId = branchInvalidationCounter;
+    pendingBranchFetch = fetchGitBranch().then((branch) => {
+      if (fetchId === branchInvalidationCounter) cachedBranch = { branch, timestamp: Date.now() };
+      pendingBranchFetch = null;
+    });
+  }
+  return cachedBranch?.branch ?? providerBranch;
+}
+
+function getGitStatus(providerBranch: string | null): GitStatus {
+  const branch = getCurrentBranch(providerBranch);
+  const now = Date.now();
+  if (cachedStatus && now - cachedStatus.timestamp < GIT_STATUS_TTL_MS) {
+    return { branch, staged: cachedStatus.staged, unstaged: cachedStatus.unstaged, untracked: cachedStatus.untracked };
+  }
+  if (!pendingStatusFetch) {
+    const fetchId = statusInvalidationCounter;
+    pendingStatusFetch = fetchGitStatus().then((status) => {
+      if (fetchId === statusInvalidationCounter) {
+        cachedStatus = status ? { ...status, timestamp: Date.now() } : { staged: 0, unstaged: 0, untracked: 0, timestamp: Date.now() };
+      }
+      pendingStatusFetch = null;
+    });
+  }
+  return cachedStatus
+    ? { branch, staged: cachedStatus.staged, unstaged: cachedStatus.unstaged, untracked: cachedStatus.untracked }
+    : { branch, staged: 0, unstaged: 0, untracked: 0 };
+}
+
+function invalidateGitStatus(): void {
+  cachedStatus = null;
+  statusInvalidationCounter++;
+}
+
+function invalidateGitBranch(): void {
+  cachedBranch = null;
+  branchInvalidationCounter++;
+}
+
+function renderSegment(id: SegmentId, ctx: SegmentContext) {
+  switch (id) {
+    case "pi":
+      return { content: color(ctx, "pi", `${ICONS.pi} `), visible: true };
+    case "model": {
+      const modelName = (ctx.model?.name || ctx.model?.id || "no-model").replace(/^Claude /, "");
+      return { content: color(ctx, "model", withIcon(ICONS.model, modelName)), visible: true };
     }
-    if (rightTop.length > 0) {
-      rightTop.shift();
-      continue;
+    case "thinking":
+      return { content: color(ctx, "thinking", withIcon(ICONS.thinking, THINK_LABELS[ctx.thinkingLevel] || ctx.thinkingLevel)), visible: true };
+    case "cost":
+      return ctx.cost ? { content: color(ctx, "cost", `$${ctx.cost.toFixed(2)}`), visible: true } : EMPTY_SEGMENT;
+    case "path":
+      return { content: color(ctx, "path", withIcon(ICONS.folder, getDisplayPath(ctx.cwd))), visible: true };
+    case "git": {
+      const { branch, staged, unstaged, untracked } = ctx.git;
+      if (!branch && !staged && !unstaged && !untracked) return EMPTY_SEGMENT;
+      const dirty = staged > 0 || unstaged > 0 || untracked > 0;
+      const branchColor: SemanticColor = dirty ? "gitDirty" : "gitClean";
+      let content = branch ? color(ctx, branchColor, withIcon(ICONS.branch, branch)) : "";
+      const indicators = [
+        unstaged > 0 ? applyColor(ctx.theme, "warning", `*${unstaged}`) : "",
+        staged > 0 ? applyColor(ctx.theme, "success", `+${staged}`) : "",
+        untracked > 0 ? applyColor(ctx.theme, "muted", `?${untracked}`) : "",
+      ].filter(Boolean);
+      if (!content && indicators.length) content = color(ctx, branchColor, `${ICONS.git} `) + indicators.join(" ");
+      else if (indicators.length) content += ` ${indicators.join(" ")}`;
+      return content ? { content, visible: true } : EMPTY_SEGMENT;
     }
-    break;
+    case "context_pct": {
+      const text = `${formatTokens(ctx.contextUsed)}/${formatTokens(ctx.contextWindow)} (${ctx.contextPercent.toFixed(1)}%)`;
+      const semantic = ctx.contextPercent > 90 ? "contextError" : ctx.contextPercent > 70 ? "contextWarn" : "context";
+      return { content: color(ctx, semantic, text), visible: true };
+    }
+    case "extension_statuses": {
+      if (!ctx.extensionStatuses.size) return EMPTY_SEGMENT;
+      const parts = [...ctx.extensionStatuses.values()].filter((value) => value && !value.trimStart().startsWith("["));
+      return parts.length ? { content: parts.join(" | "), visible: true } : EMPTY_SEGMENT;
+    }
+  }
+}
+
+function rendered(segId: SegmentId, ctx: SegmentContext) {
+  const segment = renderSegment(segId, ctx);
+  return segment.visible && segment.content
+    ? { segId, content: segment.content, width: visibleWidth(segment.content), visible: true }
+    : { segId, content: "", width: 0, visible: false };
+}
+
+function computeResponsiveLayout(ctx: SegmentContext, width: number) {
+  const separatorWidth = visibleWidth(SEPARATOR) + 2;
+  const left = SEG_LEFT.map((id) => rendered(id, ctx)).filter((seg) => seg.visible);
+  const right = SEG_RIGHT.map((id) => rendered(id, ctx)).filter((seg) => seg.visible);
+  const secondary = SEG_SECONDARY.map((id) => rendered(id, ctx)).filter((seg) => seg.visible);
+  const leftTop = [...left];
+  const rightTop = [...right];
+  const topInnerWidth = Math.max(0, width - 2);
+
+  while (groupWidth(leftTop, separatorWidth) + groupWidth(rightTop, separatorWidth) + (leftTop.length && rightTop.length ? 1 : 0) > topInnerWidth) {
+    if (leftTop.length) leftTop.pop();
+    else if (rightTop.length) rightTop.shift();
+    else break;
   }
 
-  const includedSegIds = new Set<StatusLineSegmentId>([
-    ...leftTop.map((seg) => seg.segId),
-    ...rightTop.map((seg) => seg.segId),
-  ]);
-
-  const overflowPrimary = [...leftRendered, ...rightRendered].filter(
-    (seg) => !includedSegIds.has(seg.segId),
-  );
-
-  const leftStr = joinParts(
-    leftTop.map((seg) => seg.content),
-    separatorDef.left,
-  );
-  const rightStr = joinParts(
-    rightTop.map((seg) => seg.content),
-    separatorDef.right,
-  );
+  const shown = new Set<SegmentId>([...leftTop.map((seg) => seg.segId), ...rightTop.map((seg) => seg.segId)]);
+  const leftStr = joinParts(leftTop.map((seg) => seg.content), SEPARATOR);
+  const rightStr = joinParts(rightTop.map((seg) => seg.content), SEPARATOR);
+  const overflow = [...left, ...right].filter((seg) => !shown.has(seg.segId));
 
   let topContent = "";
   if (leftStr || rightStr) {
-    const leftWidth = visibleWidth(leftStr);
-    const rightWidth = visibleWidth(rightStr);
-    const betweenGroups = leftStr && rightStr ? 1 : 0;
-    const paddingWidth = Math.max(0, topInnerWidth - leftWidth - rightWidth - betweenGroups);
-
-    if (leftStr && rightStr) {
-      topContent = ` ${leftStr}${" ".repeat(paddingWidth + 1)}${rightStr} `;
-    } else if (leftStr) {
-      topContent = ` ${leftStr} `;
-    } else {
-      topContent = ` ${rightStr} `;
-    }
+    const pad = Math.max(0, topInnerWidth - visibleWidth(leftStr) - visibleWidth(rightStr) - (leftStr && rightStr ? 1 : 0));
+    topContent = leftStr && rightStr ? ` ${leftStr}${" ".repeat(pad + 1)}${rightStr} ` : leftStr ? ` ${leftStr} ` : ` ${rightStr} `;
   }
 
-  const secondaryCandidates = [...overflowPrimary, ...secondaryRendered];
-  const secondarySegments: string[] = [];
-  let secondaryWidth = 2;
-
-  for (const seg of secondaryCandidates) {
-    const neededWidth = seg.width + (secondarySegments.length > 0 ? leftSepWidth : 0);
-    if (secondaryWidth + neededWidth <= availableWidth) {
-      secondarySegments.push(seg.content);
-      secondaryWidth += neededWidth;
-    } else {
-      break;
-    }
+  const bottom: string[] = [];
+  let bottomWidth = 2;
+  for (const seg of [...overflow, ...secondary]) {
+    const needed = seg.width + (bottom.length ? separatorWidth : 0);
+    if (bottomWidth + needed > width) break;
+    bottom.push(seg.content);
+    bottomWidth += needed;
   }
 
-  return {
-    topContent,
-    secondaryContent: buildContentFromParts(secondarySegments, presetDef),
-  };
+  return { topContent, secondaryContent: buildContent(bottom, SEPARATOR) };
 }
 
 export default function powerlineFooter(pi: ExtensionAPI) {
-  let enabled = true;
-  let sessionStartTime = Date.now();
   let currentCtx: any = null;
   let footerDataRef: ReadonlyFooterDataProvider | null = null;
-  let getThinkingLevelFn: (() => string) | null = null;
   let tuiRef: any = null;
-
   let lastLayoutWidth = 0;
-  let lastLayoutResult: { topContent: string; secondaryContent: string } | null = null;
+  let lastLayout: { topContent: string; secondaryContent: string } | null = null;
   let lastLayoutTimestamp = 0;
 
+  const maybeRequestRender = (delay: number) => setTimeout(() => tuiRef?.requestRender(), delay);
+  const invalidateGit = () => { invalidateGitStatus(); invalidateGitBranch(); };
+  const mightChangeGitBranch = (cmd: string) => GIT_BRANCH_PATTERNS.some((pattern) => pattern.test(cmd));
+
   pi.on("session_start", async (_event, ctx) => {
-    sessionStartTime = Date.now();
     currentCtx = ctx;
+    if (ctx.hasUI) setupCustomEditor(ctx);
+  });
 
-    const ctxAny = ctx as any;
-    if (typeof ctxAny.getThinkingLevel === "function") {
-      getThinkingLevelFn = () => ctxAny.getThinkingLevel();
-    }
-
-    if (enabled && ctx.hasUI) {
-      setupCustomEditor(ctx);
+  pi.on("tool_result", async (event) => {
+    if (event.toolName === "write" || event.toolName === "edit") invalidateGitStatus();
+    if (event.toolName === "bash" && event.input?.command && mightChangeGitBranch(String(event.input.command))) {
+      invalidateGit();
+      maybeRequestRender(100);
     }
   });
 
-  const mightChangeGitBranch = (cmd: string): boolean => {
-    const gitBranchPatterns = [
-      /\bgit\s+(checkout|switch|branch\s+-[dDmM]|merge|rebase|pull|reset|worktree)/,
-      /\bgit\s+stash\s+(pop|apply)/,
-    ];
-    return gitBranchPatterns.some((p) => p.test(cmd));
-  };
-
-  pi.on("tool_result", async (event, _ctx) => {
-    if (event.toolName === "write" || event.toolName === "edit") {
-      invalidateGitStatus();
-    }
-
-    if (event.toolName === "bash" && event.input?.command) {
-      const cmd = String(event.input.command);
-      if (mightChangeGitBranch(cmd)) {
-        invalidateGitStatus();
-        invalidateGitBranch();
-        setTimeout(() => tuiRef?.requestRender(), 100);
-      }
-    }
-  });
-
-  pi.on("user_bash", async (event, _ctx) => {
-    if (mightChangeGitBranch(event.command)) {
-      invalidateGitStatus();
-      invalidateGitBranch();
-      setTimeout(() => tuiRef?.requestRender(), 100);
-      setTimeout(() => tuiRef?.requestRender(), 300);
-      setTimeout(() => tuiRef?.requestRender(), 500);
-    }
-  });
-
-  pi.registerCommand("powerline", {
-    description: "Configure powerline status (toggle, preset)",
-    handler: async (args, ctx) => {
-      currentCtx = ctx;
-
-      if (!args || !args.trim()) {
-        enabled = !enabled;
-        if (enabled) {
-          setupCustomEditor(ctx);
-          ctx.ui.notify("Powerline enabled", "info");
-        } else {
-          ctx.ui.setEditorComponent(undefined);
-          ctx.ui.setFooter(undefined);
-          ctx.ui.setWidget("powerline-secondary", undefined);
-          ctx.ui.setWidget("powerline-status", undefined);
-          footerDataRef = null;
-          tuiRef = null;
-          lastLayoutResult = null;
-          ctx.ui.notify("Powerline disabled", "info");
-        }
-        return;
-      }
-
-      const sub = args.trim().toLowerCase();
-      if (sub === "on") {
-        enabled = true;
-        setupCustomEditor(ctx);
-        ctx.ui.notify("Powerline enabled", "info");
-        return;
-      }
-      if (sub === "off") {
-        enabled = false;
-        ctx.ui.setEditorComponent(undefined);
-        ctx.ui.setFooter(undefined);
-        ctx.ui.setWidget("powerline-secondary", undefined);
-        ctx.ui.setWidget("powerline-status", undefined);
-        lastLayoutResult = null;
-        ctx.ui.notify("Powerline disabled", "info");
-        return;
-      }
-
-      const preset = sub as StatusLinePreset;
-      if (preset in PRESETS) {
-        config.preset = preset;
-        lastLayoutResult = null;
-        if (enabled) setupCustomEditor(ctx);
-        ctx.ui.notify(`Preset set to: ${preset}`, "info");
-        return;
-      }
-
-      const presetList = Object.keys(PRESETS).join(", ");
-      ctx.ui.notify(`Available presets: ${presetList}`, "info");
-    },
+  pi.on("user_bash", async (event) => {
+    if (!mightChangeGitBranch(event.command)) return;
+    invalidateGit();
+    maybeRequestRender(100);
+    maybeRequestRender(300);
+    maybeRequestRender(500);
   });
 
   function buildSegmentContext(ctx: any, theme: Theme): SegmentContext {
-    const presetDef = getPreset(config.preset);
-    const colors: ColorScheme = presetDef.colors ?? getDefaultColors();
-
-    let input = 0;
-    let output = 0;
-    let cacheRead = 0;
-    let cacheWrite = 0;
     let cost = 0;
-    let lastAssistant: any = undefined;
-    let thinkingLevelFromSession = "off";
+    let lastUsage: any;
+    let thinkingLevel = "off";
 
-    const sessionEvents = ctx.sessionManager?.getBranch?.() ?? [];
-    for (const e of sessionEvents) {
-      if (e.type === "thinking_level_change" && e.thinkingLevel) {
-        thinkingLevelFromSession = e.thinkingLevel;
-      }
-
-      if (e.type === "message" && e.message.role === "assistant") {
-        const m = e.message;
-        if (m.stopReason === "error" || m.stopReason === "aborted") {
-          continue;
-        }
-
-        const usage = m.usage;
-        if (!usage) continue;
-
-        input += usage.input ?? 0;
-        output += usage.output ?? 0;
-        cacheRead += usage.cacheRead ?? 0;
-        cacheWrite += usage.cacheWrite ?? 0;
-        cost += usage.cost?.total ?? 0;
-        lastAssistant = m;
-      }
+    for (const entry of ctx.sessionManager?.getBranch?.() ?? []) {
+      if (entry.type === "thinking_level_change" && entry.thinkingLevel) thinkingLevel = entry.thinkingLevel;
+      if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+      const message = entry.message;
+      if (message.stopReason === "error" || message.stopReason === "aborted" || !message.usage) continue;
+      cost += message.usage.cost?.total ?? 0;
+      lastUsage = message.usage;
     }
 
-    const contextTokens = lastAssistant?.usage
-      ? (lastAssistant.usage.input ?? 0)
-        + (lastAssistant.usage.output ?? 0)
-        + (lastAssistant.usage.cacheRead ?? 0)
-        + (lastAssistant.usage.cacheWrite ?? 0)
+    const fallbackContextUsed = lastUsage
+      ? (lastUsage.input ?? 0) + (lastUsage.output ?? 0) + (lastUsage.cacheRead ?? 0) + (lastUsage.cacheWrite ?? 0)
       : 0;
-
-    const contextWindow = ctx.model?.contextWindow || 0;
-    const contextPercent = contextWindow > 0 ? (contextTokens / contextWindow) * 100 : 0;
-
-    const gitBranch = footerDataRef?.getGitBranch() ?? null;
-    const git = getGitStatus(gitBranch);
-
-    const usingSubscription = ctx.model
-      ? (ctx.modelRegistry?.isUsingOAuth?.(ctx.model) ?? false)
-      : false;
+    const usage = ctx.getContextUsage?.();
+    const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
+    const contextUsed = typeof usage?.tokens === "number" ? usage.tokens : fallbackContextUsed;
+    const contextPercent = typeof usage?.percent === "number" ? usage.percent : contextWindow > 0 ? (contextUsed / contextWindow) * 100 : 0;
 
     return {
       model: ctx.model,
-      thinkingLevel: thinkingLevelFromSession || getThinkingLevelFn?.() || "off",
-      sessionId: ctx.sessionManager?.getSessionId?.(),
-      sessionName: ctx.sessionManager?.getSessionName?.(),
-      usageStats: { input, output, cacheRead, cacheWrite, cost },
+      cwd: ctx.cwd,
+      thinkingLevel: thinkingLevel !== "off" ? thinkingLevel : pi.getThinkingLevel(),
+      cost,
       contextPercent,
-      contextUsed: contextTokens,
+      contextUsed,
       contextWindow,
-      autoCompactEnabled: ctx.settingsManager?.getCompactionSettings?.()?.enabled ?? false,
-      usingSubscription,
-      sessionStartTime,
-      git,
+      git: getGitStatus(footerDataRef?.getGitBranch() ?? null),
       extensionStatuses: footerDataRef?.getExtensionStatuses() ?? new Map(),
-      options: presetDef.segmentOptions ?? {},
       theme,
-      colors,
+      colors: COLORS,
     };
   }
 
-  function getResponsiveLayout(width: number, theme: Theme): { topContent: string; secondaryContent: string } {
+  function getLayout(width: number, theme: Theme) {
     const now = Date.now();
-    if (lastLayoutResult && lastLayoutWidth === width && now - lastLayoutTimestamp < 50) {
-      return lastLayoutResult;
-    }
-
-    const presetDef = getPreset(config.preset);
-    const segmentCtx = buildSegmentContext(currentCtx, theme);
-
+    if (lastLayout && lastLayoutWidth === width && now - lastLayoutTimestamp < 50) return lastLayout;
     lastLayoutWidth = width;
-    lastLayoutResult = computeResponsiveLayout(segmentCtx, presetDef, width);
+    lastLayout = computeResponsiveLayout(buildSegmentContext(currentCtx, theme), width);
     lastLayoutTimestamp = now;
-
-    return lastLayoutResult;
+    return lastLayout;
   }
 
   function setupCustomEditor(ctx: any) {
@@ -366,69 +404,34 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
         const originalRender = editor.render.bind(editor);
         editor.render = (width: number): string[] => {
-          if (width < 10) {
-            return originalRender(width);
-          }
-
-          const border = (s: string) => ctx.ui.theme.fg("borderAccent", s);
-          const prompt = "\x1b[38;2;200;200;200m>\x1b[0m";
-
-          const promptPrefix = ` ${prompt} `;
-          const contPrefix = "   ";
-          const contentWidth = Math.max(1, width - 5);
-          const lines = originalRender(contentWidth);
-
-          if (lines.length === 0 || !currentCtx) return lines;
+          if (width < 10) return originalRender(width);
+          const lines = originalRender(width);
+          if (!lines.length || !currentCtx) return lines;
 
           let bottomBorderIndex = lines.length - 1;
           for (let i = lines.length - 1; i >= 1; i--) {
             const stripped = lines[i]?.replace(/\x1b\[[0-9;]*m/g, "") || "";
-            if (stripped.length > 0 && /^─{3,}/.test(stripped)) {
-              bottomBorderIndex = i;
-              break;
-            }
+            if (stripped && /^─{3,}/.test(stripped)) { bottomBorderIndex = i; break; }
           }
 
-          const result: string[] = [];
-          const layout = getResponsiveLayout(width, ctx.ui.theme);
-          result.push(layout.topContent);
+          const promptPrefix = " \x1b[38;2;200;200;200m>\x1b[0m ";
+          const contPrefix = "   ";
+          const border = (text: string) => editorTheme.borderColor(text);
+          const { topContent } = getLayout(width, ctx.ui.theme);
+          const result = [topContent];
 
-          const sessionNameRaw = currentCtx.sessionManager?.getSessionName?.();
-          const sessionName = typeof sessionNameRaw === "string" ? sessionNameRaw.trim() : "";
-
-          const makeBodyRow = (inner: string) => {
-            const innerWidth = Math.max(1, width - 2);
+          const promptRow = (prefix: string, inner: string) => {
+            const innerWidth = Math.max(1, width - visibleWidth(prefix));
             const clipped = truncateToWidth(inner, innerWidth, "");
-            const pad = " ".repeat(Math.max(0, innerWidth - visibleWidth(clipped)));
-            return border("│") + clipped + pad + border("│");
+            return prefix + clipped + " ".repeat(Math.max(0, innerWidth - visibleWidth(clipped)));
           };
+          const borderRow = (line: string) => line + border("─".repeat(Math.max(0, width - visibleWidth(line))));
 
-          let headerLabel = "";
-          if (sessionName) {
-            const maxSessionWidth = Math.max(0, width - 4);
-            if (maxSessionWidth > 0) {
-              const sessionText = truncateToWidth(sessionName, maxSessionWidth, "…");
-              headerLabel = ` ${ctx.ui.theme.fg("dim", sessionText)} `;
-            }
-          }
-          const topFill = Math.max(1, width - 2 - visibleWidth(headerLabel));
-          result.push(border("┌") + headerLabel + border("─".repeat(topFill) + "┐"));
-
-          for (let i = 1; i < bottomBorderIndex; i++) {
-            const prefix = i === 1 ? promptPrefix : contPrefix;
-            result.push(makeBodyRow(`${prefix}${lines[i] || ""}`));
-          }
-
-          if (bottomBorderIndex === 1) {
-            result.push(makeBodyRow(`${promptPrefix}${" ".repeat(contentWidth)}`));
-          }
-
-          result.push(border("└" + "─".repeat(Math.max(1, width - 2)) + "┘"));
-
-          for (let i = bottomBorderIndex + 1; i < lines.length; i++) {
-            result.push(lines[i] || "");
-          }
-
+          result.push(borderRow(lines[0] || ""));
+          for (let i = 1; i < bottomBorderIndex; i++) result.push(promptRow(i === 1 ? promptPrefix : contPrefix, lines[i] || ""));
+          if (bottomBorderIndex === 1) result.push(promptRow(promptPrefix, ""));
+          result.push(borderRow(lines[bottomBorderIndex] || ""));
+          for (let i = bottomBorderIndex + 1; i < lines.length; i++) result.push(lines[i] || "");
           return result;
         };
 
@@ -440,56 +443,32 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       ctx.ui.setFooter((tui: any, _theme: Theme, footerData: ReadonlyFooterDataProvider) => {
         footerDataRef = footerData;
         tuiRef = tui;
-        const unsub = footerData.onBranchChange(() => tui.requestRender());
-
-        return {
-          dispose: unsub,
-          invalidate() {},
-          render(): string[] {
-            return [];
-          },
-        };
+        const dispose = footerData.onBranchChange(() => tui.requestRender());
+        return { dispose, invalidate() {}, render(): string[] { return []; } };
       });
 
-      ctx.ui.setWidget(
-        "powerline-secondary",
-        (_tui: any, theme: Theme) => ({
-          dispose() {},
-          invalidate() {},
-          render(width: number): string[] {
-            if (!currentCtx) return [];
-            const layout = getResponsiveLayout(width, theme);
-            return layout.secondaryContent ? [layout.secondaryContent] : [];
-          },
-        }),
-        { placement: "belowEditor" },
-      );
+      ctx.ui.setWidget("powerline-secondary", (_tui: any, theme: Theme) => ({
+        dispose() {},
+        invalidate() {},
+        render(width: number): string[] {
+          if (!currentCtx) return [];
+          const { secondaryContent } = getLayout(width, theme);
+          return secondaryContent ? [secondaryContent] : [];
+        },
+      }), { placement: "belowEditor" });
 
-      ctx.ui.setWidget(
-        "powerline-status",
-        () => ({
-          dispose() {},
-          invalidate() {},
-          render(width: number): string[] {
-            if (!currentCtx || !footerDataRef) return [];
-
-            const statuses = footerDataRef.getExtensionStatuses();
-            if (!statuses || statuses.size === 0) return [];
-
-            const notifications: string[] = [];
-            for (const value of statuses.values()) {
-              if (value && value.trimStart().startsWith("[")) {
-                const lineContent = ` ${value}`;
-                if (visibleWidth(lineContent) <= width) {
-                  notifications.push(lineContent);
-                }
-              }
-            }
-            return notifications;
-          },
-        }),
-        { placement: "aboveEditor" },
-      );
+      ctx.ui.setWidget("powerline-status", () => ({
+        dispose() {},
+        invalidate() {},
+        render(width: number): string[] {
+          if (!footerDataRef) return [];
+          const lines = [...footerDataRef.getExtensionStatuses().values()]
+            .filter((value) => value && value.trimStart().startsWith("["))
+            .map((value) => ` ${value}`)
+            .filter((line) => visibleWidth(line) <= width);
+          return lines;
+        },
+      }), { placement: "aboveEditor" });
     });
   }
 }
