@@ -42,10 +42,19 @@ function dot-ui {
     }
 }
 
-# Wrapper for `pi` that ensures the GIT_DIR and WORK_TREE are set correctly to work with .dotfiles, then restores them after running.
-# This allow pi aware of the bare repo .dotfiles setup.
-# For normal usage just pi on others folder
+# Wrapper for `pi` that ensures the dotfiles bare-repo env is set, then restores it after running.
+# Examples:
+#   dot-pi
+#   dot-pi -c
+#   dot-pi --model anthropic/claude-sonnet-4
+#   dot-pi -c --model anthropic/claude-sonnet-4
+# For normal usage in other folders, use plain `pi`.
 function dot-pi {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$PiArgs
+    )
+
     $oldGitDir = $env:GIT_DIR
     $oldWorkTree = $env:GIT_WORK_TREE
     $oldLocks = $env:GIT_OPTIONAL_LOCKS
@@ -55,12 +64,29 @@ function dot-pi {
         $env:GIT_WORK_TREE = "$HOME"
         $env:GIT_OPTIONAL_LOCKS = "0"
         Set-Location $HOME
-        pi
+        & pi @PiArgs
     }
     finally {
-        $env:GIT_DIR = $oldGitDir
-        $env:GIT_WORK_TREE = $oldWorkTree
-        $env:GIT_OPTIONAL_LOCKS = $oldLocks
+        if ($null -eq $oldGitDir) {
+            Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:GIT_DIR = $oldGitDir
+        }
+
+        if ($null -eq $oldWorkTree) {
+            Remove-Item Env:GIT_WORK_TREE -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:GIT_WORK_TREE = $oldWorkTree
+        }
+
+        if ($null -eq $oldLocks) {
+            Remove-Item Env:GIT_OPTIONAL_LOCKS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:GIT_OPTIONAL_LOCKS = $oldLocks
+        }
     }
 }
 
