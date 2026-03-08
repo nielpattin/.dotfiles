@@ -196,6 +196,8 @@ beforeEach(() => {
   };
   delete process.env.PI_TASK_DEPTH;
   delete process.env.PI_TASK_MAX_DEPTH;
+  delete process.env.PI_TASK_MAX_PARALLEL;
+  delete process.env.PI_TASK_CONCURRENCY;
 });
 
 describe("subagent index", () => {
@@ -512,6 +514,164 @@ describe("subagent index", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toBe("Agent startup failed: Failed to start child process.");
     expect(result.details.results[0]?.failureCategory).toBe("startup");
+  });
+
+  it("uses env-configured parallel task limits", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+    process.env.PI_TASK_MAX_PARALLEL = "3";
+    process.env.PI_TASK_CONCURRENCY = "2";
+
+    runAgentImpl = async (opts) =>
+      makeResult({
+        agent: opts.agentName,
+        agentSource: "user",
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+      });
+
+    const tasks = Array.from({ length: 3 }, (_, index) => ({
+      agent: "worker",
+      summary: `Task ${index + 1}`,
+      task: `Do task ${index + 1}`,
+    }));
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      { tasks },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    const rejected = await tool.execute(
+      "call-2",
+      {
+        tasks: [...tasks, { agent: "worker", summary: "Task 4", task: "Do task 4" }],
+      },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(mapConcurrentCalls).toHaveLength(1);
+    expect(mapConcurrentCalls[0]?.concurrency).toBe(2);
+    expect(runAgentCalls).toHaveLength(3);
+    expect(result.content[0]?.text).toContain("Parallel: 3/3 succeeded");
+    expect(rejected.content[0]?.text).toContain("Too many parallel tasks (4). Max is 3.");
+  });
+
+  it("lets task flags override env settings and clamps concurrency to the task cap", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+    process.env.PI_TASK_MAX_PARALLEL = "3";
+    process.env.PI_TASK_CONCURRENCY = "2";
+
+    runAgentImpl = async (opts) =>
+      makeResult({
+        agent: opts.agentName,
+        agentSource: "user",
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+      });
+
+    const warn = mock(() => {});
+    const originalWarn = console.warn;
+    console.warn = warn as any;
+
+    try {
+      const tasks = Array.from({ length: 6 }, (_, index) => ({
+        agent: "worker",
+        summary: `Task ${index + 1}`,
+        task: `Do task ${index + 1}`,
+      }));
+
+      const { tool } = createExtension({
+        flags: {
+          "task-max-parallel": "6",
+          "task-concurrency": "9",
+        },
+      });
+      await tool.execute("call-1", { tasks }, undefined, undefined, makeCtx());
+
+      expect(mapConcurrentCalls).toHaveLength(1);
+      expect(mapConcurrentCalls[0]?.concurrency).toBe(6);
+      expect(runAgentCalls).toHaveLength(6);
+      expect(warn).toHaveBeenCalled();
+      expect(
+        (warn as any).mock.calls.some((call: any[]) =>
+          String(call[0]).includes("Clamping task concurrency from 9 to 6"),
+        ),
+      ).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it("warns on invalid parallel settings and falls back to the defaults", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+    process.env.PI_TASK_MAX_PARALLEL = "0";
+    process.env.PI_TASK_CONCURRENCY = "abc";
+
+    runAgentImpl = async (opts) =>
+      makeResult({
+        agent: opts.agentName,
+        agentSource: "user",
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+      });
+
+    const warn = mock(() => {});
+    const originalWarn = console.warn;
+    console.warn = warn as any;
+
+    try {
+      const { tool } = createExtension();
+      await tool.execute(
+        "call-1",
+        {
+          tasks: [
+            { agent: "worker", summary: "Task 1", task: "Do task 1" },
+            { agent: "worker", summary: "Task 2", task: "Do task 2" },
+          ],
+        },
+        undefined,
+        undefined,
+        makeCtx(),
+      );
+
+      const rejected = await tool.execute(
+        "call-2",
+        {
+          tasks: Array.from({ length: 9 }, (_, index) => ({
+            agent: "worker",
+            summary: `Task ${index + 1}`,
+            task: `Do task ${index + 1}`,
+          })),
+        },
+        undefined,
+        undefined,
+        makeCtx(),
+      );
+
+      expect(mapConcurrentCalls).toHaveLength(1);
+      expect(mapConcurrentCalls[0]?.concurrency).toBe(4);
+      expect(rejected.content[0]?.text).toContain("Too many parallel tasks (9). Max is 8.");
+      expect(
+        (warn as any).mock.calls.some((call: any[]) =>
+          String(call[0]).includes("Ignoring invalid PI_TASK_MAX_PARALLEL=\"0\""),
+        ),
+      ).toBe(true);
+      expect(
+        (warn as any).mock.calls.some((call: any[]) =>
+          String(call[0]).includes("Ignoring invalid PI_TASK_CONCURRENCY=\"abc\""),
+        ),
+      ).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
   it("uses per-task modes in parallel runs with task-level precedence over the top-level default", async () => {

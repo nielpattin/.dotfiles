@@ -47,6 +47,43 @@ pi --task-max-depth 2
 pi --task-max-depth 0
 ```
 
+### Parallel Batch Size and Concurrency
+
+Parallel execution has two separate controls:
+
+- `--task-max-parallel <n>` / `PI_TASK_MAX_PARALLEL=<n>`
+  - maximum number of tasks allowed in one parallel batch
+  - default: `8`
+- `--task-concurrency <n>` / `PI_TASK_CONCURRENCY=<n>`
+  - maximum number of child agents actively running at once
+  - default: `4`
+
+`n` must be a positive integer for both settings.
+
+Precedence for both settings:
+
+- CLI flag wins when present
+- otherwise the runtime flag value is used
+- otherwise the environment variable is used
+- otherwise the default is used
+
+The two controls are intentionally different:
+
+- `task-max-parallel` limits how large one `tasks: [...]` batch is allowed to be
+- `task-concurrency` limits how many of those accepted tasks run simultaneously
+
+Examples:
+
+```bash
+# Keep the default batch cap, but only run two child agents at once
+pi --task-concurrency 2
+
+# Allow up to 12 tasks in one batch, but still only run 3 at a time
+pi --task-max-parallel 12 --task-concurrency 3
+```
+
+If `task-concurrency` is set higher than `task-max-parallel`, it is clamped down to the resolved task cap.
+
 ### Context Mode (`spawn` vs `fork`)
 
 `task` supports a top-level `mode` switch:
@@ -242,7 +279,8 @@ Note: `fork` copies session context, not transient runtime-only prompt mutations
 
 When running multiple agents in parallel:
 
-- All task agents start simultaneously (up to 4 concurrent)
+- A batch can include up to 8 tasks by default (`--task-max-parallel` / `PI_TASK_MAX_PARALLEL`)
+- Up to 4 child agents run concurrently by default (`--task-concurrency` / `PI_TASK_CONCURRENCY`)
 - Each task uses `tasks[i].mode` when present; otherwise it falls back to the top-level `mode`
 - Mixed `spawn` + `fork` batches share one parent snapshot build, and only `fork` tasks receive it
 - Failed tasks are summarized with a failure category (`validation`, `startup`, `abort`, `runtime`)
@@ -260,6 +298,7 @@ Parallel: 2/3 succeeded
 
 - **Auto-Discovery** — Agents are discovered on session start for UI visibility and refreshed before prompt injection/execution to stay aligned with the current filesystem state.
 - **Context Mode Switch** — `spawn` (fresh context) and `fork` (session snapshot + task), with per-task overrides in parallel batches.
+- **Configurable Parallel Limits** — Tune batch size and active child concurrency with `--task-max-parallel` / `PI_TASK_MAX_PARALLEL` and `--task-concurrency` / `PI_TASK_CONCURRENCY`.
 - **Failure Categories** — Failed runs are normalized into `validation`, `startup`, `abort`, or `runtime` so summaries and cards are easier to triage.
 - **Depth Guard** — Delegation depth is limited by default to prevent recursive task spawning.
 - **Streaming Updates** — Watch task progress in real-time as tool calls and outputs stream in.
@@ -303,10 +342,13 @@ Current tests:
 - `project agent non-UI block` — blocks project-local agents in non-UI mode unless confirmation is disabled
 - `single-task execution wiring` — passes the resolved runner options and returns the final child output
 - `categorized single-task failure summary` — includes the normalized failure category in single-task error text
+- `uses env-configured parallel task limits` — reads batch-size and concurrency limits from env vars
+- `lets task flags override env settings and clamps concurrency to the task cap` — prefers explicit flag values and keeps concurrency within the resolved batch cap
+- `warns on invalid parallel settings and falls back to the defaults` — ignores bad values and falls back to the default cap (`8`) and concurrency (`4`)
 - `parallel per-task mode precedence` — lets task-level mode override the top-level default and only forwards fork snapshots to fork tasks
-- `parallel execution wiring` — runs tasks concurrently, forwards fork snapshots, and aggregates results
+- `parallel execution wiring` — runs tasks with the resolved concurrency, forwards fork snapshots, and aggregates results
 - `categorized parallel failure summary` — includes normalized failure categories in parallel summaries
-- `parallel task cap` — rejects batches above the hard max of 8 tasks
+- `parallel task cap` — rejects batches above the resolved task cap
 
 ### `render.test.ts`
 

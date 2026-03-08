@@ -34,11 +34,13 @@ import {
 // Limits
 // ---------------------------------------------------------------------------
 
-const MAX_PARALLEL_TASKS = 8;
-const MAX_CONCURRENCY = 4;
+const DEFAULT_MAX_PARALLEL_TASKS = 8;
+const DEFAULT_MAX_CONCURRENCY = 4;
 const DEFAULT_MAX_DELEGATION_DEPTH = 1;
 const TASK_DEPTH_ENV = "PI_TASK_DEPTH";
 const TASK_MAX_DEPTH_ENV = "PI_TASK_MAX_DEPTH";
+const TASK_MAX_PARALLEL_ENV = "PI_TASK_MAX_PARALLEL";
+const TASK_CONCURRENCY_ENV = "PI_TASK_CONCURRENCY";
 
 // ---------------------------------------------------------------------------
 // Tool parameter schema
@@ -128,6 +130,11 @@ interface DelegationDepthConfig {
   canDelegate: boolean;
 }
 
+interface ParallelExecutionConfig {
+  maxParallelTasks: number;
+  concurrency: number;
+}
+
 interface SessionSnapshotSource {
   getHeader: () => unknown;
   getBranch: () => unknown[];
@@ -172,18 +179,65 @@ function parseNonNegativeInt(raw: unknown): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-function getMaxDepthFlagFromArgv(argv: string[]): string | null {
+function parsePositiveInt(raw: unknown): number | null {
+  const parsed = parseNonNegativeInt(raw);
+  return parsed !== null && parsed > 0 ? parsed : null;
+}
+
+function getFlagValueFromArgv(argv: string[], flagName: string): string | null {
+  const longFlag = `--${flagName}`;
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg) continue;
-    if (arg === "--task-max-depth") {
+    if (arg === longFlag) {
       return argv[i + 1] ?? "";
     }
-    if (arg.startsWith("--task-max-depth=")) {
-      return arg.slice("--task-max-depth=".length);
+    if (arg.startsWith(`${longFlag}=`)) {
+      return arg.slice(longFlag.length + 1);
     }
   }
   return null;
+}
+
+function resolvePositiveIntSetting(
+  pi: ExtensionAPI,
+  flagName: string,
+  envName: string,
+  fallback: number,
+): number {
+  const envRaw = process.env[envName];
+  const envValue = parsePositiveInt(envRaw);
+  if (envRaw !== undefined && envValue === null) {
+    console.warn(
+      `[pi-task] Ignoring invalid ${envName}="${envRaw}". Expected a positive integer.`,
+    );
+  }
+
+  const argvFlagRaw = getFlagValueFromArgv(process.argv, flagName);
+  const argvFlagValue =
+    argvFlagRaw !== null ? parsePositiveInt(argvFlagRaw) : null;
+  if (argvFlagRaw !== null && argvFlagValue === null) {
+    console.warn(
+      `[pi-task] Ignoring invalid --${flagName} value "${argvFlagRaw}". Expected a positive integer.`,
+    );
+  }
+
+  const runtimeFlagRaw = pi.getFlag(flagName);
+  const runtimeFlagValue =
+    typeof runtimeFlagRaw === "string"
+      ? parsePositiveInt(runtimeFlagRaw)
+      : null;
+  if (
+    argvFlagRaw === null &&
+    typeof runtimeFlagRaw === "string" &&
+    runtimeFlagValue === null
+  ) {
+    console.warn(
+      `[pi-task] Ignoring invalid --${flagName} value "${runtimeFlagRaw}". Expected a positive integer.`,
+    );
+  }
+
+  return argvFlagValue ?? runtimeFlagValue ?? envValue ?? fallback;
 }
 
 function resolveDelegationDepthConfig(pi: ExtensionAPI): DelegationDepthConfig {
@@ -204,7 +258,7 @@ function resolveDelegationDepthConfig(pi: ExtensionAPI): DelegationDepthConfig {
     );
   }
 
-  const argvFlagRaw = getMaxDepthFlagFromArgv(process.argv);
+  const argvFlagRaw = getFlagValueFromArgv(process.argv, "task-max-depth");
   const argvFlagMaxDepth =
     argvFlagRaw !== null ? parseNonNegativeInt(argvFlagRaw) : null;
   if (argvFlagRaw !== null && argvFlagMaxDepth === null) {
@@ -231,6 +285,30 @@ function resolveDelegationDepthConfig(pi: ExtensionAPI): DelegationDepthConfig {
   const flagMaxDepth = argvFlagMaxDepth ?? runtimeFlagMaxDepth;
   const maxDepth = flagMaxDepth ?? envMaxDepth ?? DEFAULT_MAX_DELEGATION_DEPTH;
   return { currentDepth, maxDepth, canDelegate: currentDepth < maxDepth };
+}
+
+function resolveParallelExecutionConfig(pi: ExtensionAPI): ParallelExecutionConfig {
+  const maxParallelTasks = resolvePositiveIntSetting(
+    pi,
+    "task-max-parallel",
+    TASK_MAX_PARALLEL_ENV,
+    DEFAULT_MAX_PARALLEL_TASKS,
+  );
+  const requestedConcurrency = resolvePositiveIntSetting(
+    pi,
+    "task-concurrency",
+    TASK_CONCURRENCY_ENV,
+    DEFAULT_MAX_CONCURRENCY,
+  );
+  const concurrency = Math.min(requestedConcurrency, maxParallelTasks);
+
+  if (requestedConcurrency > maxParallelTasks) {
+    console.warn(
+      `[pi-task] Clamping task concurrency from ${requestedConcurrency} to ${maxParallelTasks} to respect the max parallel task limit.`,
+    );
+  }
+
+  return { maxParallelTasks, concurrency };
 }
 
 function makeDetailsFactory(
@@ -296,9 +374,19 @@ export default function (pi: ExtensionAPI) {
     description: "Maximum allowed task delegation depth (default: 1).",
     type: "string",
   });
+  pi.registerFlag("task-max-parallel", {
+    description: "Maximum number of tasks allowed in one parallel batch (default: 8).",
+    type: "string",
+  });
+  pi.registerFlag("task-concurrency", {
+    description: "Maximum number of child agents run at once in parallel mode (default: 4).",
+    type: "string",
+  });
 
   const depthConfig = resolveDelegationDepthConfig(pi);
+  const parallelConfig = resolveParallelExecutionConfig(pi);
   const { currentDepth, maxDepth, canDelegate } = depthConfig;
+  const { maxParallelTasks, concurrency } = parallelConfig;
 
   let discoveredAgents: AgentConfig[] = [];
 
@@ -587,6 +675,8 @@ Use single mode for one task, parallel mode when tasks are independent and can r
             forkSessionSnapshotJsonl,
             agents,
             ctx.cwd,
+            maxParallelTasks,
+            concurrency,
             signal,
             onUpdate,
             makeDetails,
@@ -747,16 +837,18 @@ Use single mode for one task, parallel mode when tasks are independent and can r
     forkSessionSnapshotJsonl: string | undefined,
     agents: AgentConfig[],
     baseCwd: string,
+    maxParallelTasks: number,
+    concurrency: number,
     signal: AbortSignal | undefined,
     onUpdate: ((partial: any) => void) | undefined,
     makeDetails: ReturnType<typeof makeDetailsFactory>,
   ) {
-    if (tasks.length > MAX_PARALLEL_TASKS) {
+    if (tasks.length > maxParallelTasks) {
       return {
         content: [
           {
             type: "text" as const,
-            text: `Too many parallel tasks (${tasks.length}). Max is ${MAX_PARALLEL_TASKS}.`,
+            text: `Too many parallel tasks (${tasks.length}). Max is ${maxParallelTasks}.`,
           },
         ],
         details: makeDetails("parallel")([]),
@@ -812,7 +904,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
     try {
       results = await mapConcurrent(
         tasks,
-        MAX_CONCURRENCY,
+        concurrency,
         async (t, index) => {
           const result = await runAgent({
             cwd: baseCwd,
