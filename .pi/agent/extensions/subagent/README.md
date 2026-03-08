@@ -218,9 +218,32 @@ Parallel: 3/3 succeeded
 ## Project Structure
 
 ```
-index.ts    — Extension entry point: lifecycle hooks, tool registration, mode orchestration
-agents.ts   — Agent discovery: reads and parses .md files from user/project directories
-runner.ts   — Process runner: starts `pi` subprocesses in spawn/fork context modes and streams JSON events
-render.ts   — TUI rendering: renderCall and renderResult for the task tool
-types.ts    — Shared types and pure helper functions
+index.ts       — Extension entry point: lifecycle hooks, tool registration, mode orchestration
+agents.ts      — Agent discovery: reads and parses .md files from user/project directories
+runner.ts      — Process runner: starts `pi` subprocesses in spawn/fork context modes and streams JSON events
+render.ts      — TUI rendering: renderCall and renderResult for the task tool
+types.ts       — Shared types and pure helper functions
+runner.test.ts — Bun tests for runner lifecycle behavior
 ```
+
+## Tests
+
+Run:
+
+```bash
+bun test extensions/subagent/runner.test.ts
+```
+
+Current tests:
+
+- **successful child run** — child process completes, output is captured, and task env vars are passed through
+- **unknown agent rejection** — fails before spawn when the requested agent does not exist
+- **fork requires snapshot** — rejects `fork` mode when no parent session snapshot is provided
+- **streamed event parsing** — reads session, tool, tool-result, and assistant events into the final result
+- **spawn startup error** — surfaces child process startup failures
+- **stderr + non-zero exit** — preserves child stderr and exit code on failure
+- **skill loading** — loads skill content, records skill metadata, and uses task cwd for lookup
+- **temp file cleanup** — creates and removes temp files for system prompt and fork session input
+- **parent abort** — sends `SIGTERM` and returns an aborted result
+- **`mapConcurrent` ordering + limit** — keeps result order and respects the concurrency cap
+- **`mapConcurrent` empty input** — returns an empty array when there is no work

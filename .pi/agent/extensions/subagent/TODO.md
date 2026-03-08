@@ -2,19 +2,13 @@
 
 ## High priority
 
-- [ ] Add execution timeouts / watchdog support for child tasks
-  - Allow a max runtime per delegated task.
-  - Kill or abort hung child `pi` processes cleanly.
-  - Surface timeout status clearly in results/UI.
-  - Evidence: `runner.ts`
-
 - [ ] Add automated tests
-  - Cover agent discovery.
-  - Cover tool input validation.
-  - Cover single and parallel task execution paths.
-  - Cover `spawn` vs `fork` behavior.
-  - Cover rendering/status transitions where practical.
-  - Evidence: no test files found in this extension.
+  - Added initial Bun coverage in `runner.test.ts` for normal completion and abort handling.
+  - Still need broader coverage for agent discovery.
+  - Still need tool input validation coverage.
+  - Still need single and parallel task execution path coverage beyond runner lifecycle.
+  - Still need `spawn` vs `fork` behavior coverage.
+  - Still need rendering/status transition coverage where practical.
 
 ## Medium priority
 
@@ -41,7 +35,7 @@
 ## Nice-to-have follow-ups
 
 - [ ] Add clearer failure categories in output
-  - Distinguish validation failure, startup failure, timeout, abort, and agent runtime failure.
+  - Distinguish validation failure, startup failure, abort, and agent runtime failure.
 
 - [ ] Add smoke-test examples to README
   - Include one single-task example and one parallel-task example with expected behavior.
