@@ -55,9 +55,14 @@ class MockChildProcess extends EventEmitter {
     this.stderr.emit("data", Buffer.from(text));
   }
 
-  close(code = 0): void {
+  close(code = 0, signal?: string | null): void {
     this.exitCode = code;
-    this.emit("close", code);
+    this.emit("close", code, signal ?? null);
+  }
+
+  closeWithSignal(signal: string): void {
+    this.exitCode = null;
+    this.emit("close", null, signal);
   }
 
   fail(error: Error): void {
@@ -260,6 +265,7 @@ describe("runAgent", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.agentSource).toBe("unknown");
+    expect(result.failureCategory).toBe("validation");
     expect(result.stderr).toContain('Unknown agent: "missing-agent"');
     expect(spawnCalls).toHaveLength(0);
   });
@@ -279,6 +285,7 @@ describe("runAgent", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stopReason).toBe("error");
+    expect(result.failureCategory).toBe("validation");
     expect(result.errorMessage).toContain("missing parent session snapshot context");
     expect(spawnCalls).toHaveLength(0);
   });
@@ -395,6 +402,7 @@ describe("runAgent", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stopReason).toBe("error");
+    expect(result.failureCategory).toBe("startup");
     expect(result.errorMessage).toContain("Failed to start task process");
     expect(result.stderr).toContain("Spawn error: boom");
   });
@@ -423,8 +431,9 @@ describe("runAgent", () => {
     });
 
     expect(result.exitCode).toBe(7);
+    expect(result.failureCategory).toBe("runtime");
     expect(result.stderr).toContain("warning on stderr");
-    expect(result.stopReason).toBeUndefined();
+    expect(result.stopReason).toBe("error");
   });
 
   it("loads skills, records skill metadata, and uses task cwd for skill lookup", async () => {
@@ -559,8 +568,98 @@ describe("runAgent", () => {
 
     expect(result.exitCode).toBe(130);
     expect(result.stopReason).toBe("aborted");
+    expect(result.failureCategory).toBe("abort");
     expect(result.errorMessage).toBe("Task was aborted.");
     expect(proc.killCalls).toContain("SIGTERM");
+  });
+
+  it("keeps child-reported aborted stops classified as abort failures", async () => {
+    const proc = new MockChildProcess();
+
+    spawnImpl = () => {
+      setTimeout(() => {
+        emitJson(proc, {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "child aborted" }],
+            stopReason: "aborted",
+            errorMessage: "Child task aborted itself.",
+          },
+        });
+        proc.close(130);
+      }, 5);
+      return proc;
+    };
+
+    const result = await runAgent({
+      cwd: workDir,
+      agents: [makeAgent()],
+      agentName: "worker",
+      task: "Do the thing",
+      summary: "Child abort case",
+      delegationMode: "spawn",
+      parentDepth: 0,
+      maxDepth: 1,
+      makeDetails,
+    });
+
+    expect(result.exitCode).toBe(130);
+    expect(result.stopReason).toBe("aborted");
+    expect(result.failureCategory).toBe("abort");
+    expect(result.errorMessage).toBe("Child task aborted itself.");
+  });
+
+  it("classifies signaled child exits as abort failures instead of successes", async () => {
+    const proc = new MockChildProcess();
+
+    spawnImpl = () => {
+      setTimeout(() => proc.closeWithSignal("SIGTERM"), 5);
+      return proc;
+    };
+
+    const result = await runAgent({
+      cwd: workDir,
+      agents: [makeAgent()],
+      agentName: "worker",
+      task: "Do the thing",
+      summary: "Signal case",
+      delegationMode: "spawn",
+      parentDepth: 0,
+      maxDepth: 1,
+      makeDetails,
+    });
+
+    expect(result.exitCode).toBe(143);
+    expect(result.stopReason).toBe("aborted");
+    expect(result.failureCategory).toBe("abort");
+    expect(result.errorMessage).toBe("Task stopped by SIGTERM.");
+  });
+
+  it("uses signal-specific exit codes for signaled child exits", async () => {
+    const proc = new MockChildProcess();
+
+    spawnImpl = () => {
+      setTimeout(() => proc.closeWithSignal("SIGKILL"), 5);
+      return proc;
+    };
+
+    const result = await runAgent({
+      cwd: workDir,
+      agents: [makeAgent()],
+      agentName: "worker",
+      task: "Do the thing",
+      summary: "Signal code case",
+      delegationMode: "spawn",
+      parentDepth: 0,
+      maxDepth: 1,
+      makeDetails,
+    });
+
+    expect(result.exitCode).toBe(137);
+    expect(result.stopReason).toBe("aborted");
+    expect(result.failureCategory).toBe("abort");
+    expect(result.errorMessage).toBe("Task stopped by SIGKILL.");
   });
 });
 

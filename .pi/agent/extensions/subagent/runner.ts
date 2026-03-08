@@ -15,6 +15,7 @@ import type { Message } from "@mariozechner/pi-ai";
 import type { AgentConfig } from "./agents.js";
 import {
   type DelegationMode,
+  type FailureCategory,
   type SingleResult,
   type SubagentDetails,
   type SkillLoadInfo,
@@ -26,6 +27,19 @@ const SIGKILL_TIMEOUT_MS = 5000;
 const TASK_DEPTH_ENV = "PI_TASK_DEPTH";
 const TASK_MAX_DEPTH_ENV = "PI_TASK_MAX_DEPTH";
 const PI_OFFLINE_ENV = "PI_OFFLINE";
+const ABORT_SIGNALS = new Set(["SIGINT", "SIGTERM", "SIGKILL"]);
+const SIGNAL_EXIT_CODES: Record<string, number> = {
+  SIGHUP: 129,
+  SIGINT: 130,
+  SIGQUIT: 131,
+  SIGABRT: 134,
+  SIGKILL: 137,
+  SIGUSR1: 138,
+  SIGSEGV: 139,
+  SIGUSR2: 140,
+  SIGALRM: 141,
+  SIGTERM: 143,
+};
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
@@ -225,6 +239,30 @@ function formatSkillLoadSummary(skillLoad: SkillLoadInfo): string {
     skillLoad.missing.length > 0 ? skillLoad.missing.join(", ") : "(none)";
 
   return `[pi-task] skill preload cwd="${skillLoad.lookupCwd}" requested=[${requested}] loaded=[${loaded}] missing=[${missing}]`;
+}
+
+function setFailure(
+  result: SingleResult,
+  category: FailureCategory,
+  message?: string,
+): SingleResult {
+  result.failureCategory = category;
+  if (category === "abort") {
+    result.stopReason = "aborted";
+  } else if (!result.stopReason) {
+    result.stopReason = "error";
+  }
+  if (message) {
+    result.errorMessage = message;
+    if (!result.stderr.includes(message)) {
+      result.stderr += `${message}${result.stderr.endsWith("\n") || result.stderr.length === 0 ? "" : "\n"}`;
+    }
+  }
+  return result;
+}
+
+function signalToExitCode(signalName: string): number {
+  return SIGNAL_EXIT_CODES[signalName] ?? 128;
 }
 
 // ---------------------------------------------------------------------------
@@ -506,6 +544,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       usage: emptyUsage(),
       startedAt: now,
       updatedAt: now,
+      failureCategory: "validation",
     };
   }
 
@@ -531,6 +570,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       stopReason: "error",
       errorMessage:
         "Cannot run in fork mode: missing parent session snapshot context.",
+      failureCategory: "validation",
     };
   }
 
@@ -624,6 +664,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
           "Failed to resolve Pi CLI script on Windows. Cannot start task.",
         stderr:
           "Failed to resolve Pi CLI script on Windows. Cannot start task.",
+        failureCategory: "startup",
       };
     }
 
@@ -690,9 +731,23 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
         result.stderr += chunk.toString();
       });
 
-      proc.on("close", (code) => {
+      proc.on("close", (code, signalName) => {
         result.updatedAt = Date.now();
         if (buffer.trim()) flushLine(buffer);
+
+        if (signalName && code === null && !wasAborted) {
+          const normalizedSignal = String(signalName);
+          const exitCode = signalToExitCode(normalizedSignal);
+          const message = `Task stopped by ${normalizedSignal}.`;
+          if (ABORT_SIGNALS.has(normalizedSignal)) {
+            setFailure(result, "abort", message);
+          } else {
+            setFailure(result, "runtime", message);
+          }
+          finish(exitCode);
+          return;
+        }
+
         finish(code ?? 0);
       });
 
@@ -703,8 +758,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
           result.stderr += `Spawn error: ${message}\n`;
         }
         if (!wasAborted) {
-          result.stopReason = "error";
-          result.errorMessage = `Failed to start task process (${spawnTarget.command}).`;
+          setFailure(
+            result,
+            "startup",
+            `Failed to start task process (${spawnTarget.command}).`,
+          );
         }
         finish(1);
       });
@@ -713,10 +771,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       if (signal) {
         abortListener = () => {
           if (!requestAbort()) return;
-          result.stopReason = "aborted";
-          result.errorMessage = "Task was aborted.";
-          if (!result.stderr.includes("Task was aborted.")) {
-            result.stderr += "Task was aborted.\n";
+          setFailure(result, "abort", "Task was aborted.");
+          if (!result.stderr.endsWith("\n")) {
+            result.stderr += "\n";
           }
           emitUpdate();
         };
@@ -731,11 +788,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     result.updatedAt = Date.now();
     if (wasAborted) {
       result.exitCode = 130;
-      result.stopReason = "aborted";
-      result.errorMessage = "Task was aborted.";
-      if (!result.stderr.includes("Task was aborted.")) {
-        result.stderr += "Task was aborted.";
-      }
+      setFailure(result, "abort", "Task was aborted.");
+    } else if (!result.failureCategory && result.stopReason === "aborted") {
+      setFailure(result, "abort", result.errorMessage || "Task was aborted.");
+    } else if (!result.failureCategory && (result.stopReason === "error" || result.exitCode > 0)) {
+      setFailure(result, "runtime");
     }
     return result;
   } finally {

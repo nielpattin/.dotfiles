@@ -26,6 +26,7 @@ import {
 	DEFAULT_DELEGATION_MODE,
 	aggregateUsage,
 	getDisplayItems,
+	getFailureCategory,
 	getFinalOutput,
 	isResultError,
 } from "./types.js";
@@ -285,6 +286,36 @@ function getDisplaySummary(summary: unknown): string {
 	return cleaned.length > 0 ? cleaned : "(missing summary)";
 }
 
+function formatFailureCategory(category: ReturnType<typeof getFailureCategory>): string {
+	switch (category) {
+		case "validation":
+			return "validation";
+		case "startup":
+			return "startup";
+		case "abort":
+			return "abort";
+		case "runtime":
+			return "runtime";
+		default:
+			return "failed";
+	}
+}
+
+function formatFailureLineLabel(r: SingleResult): string {
+	switch (getFailureCategory(r)) {
+		case "validation":
+			return "Validation failure";
+		case "startup":
+			return "Startup failure";
+		case "abort":
+			return "Aborted";
+		case "runtime":
+			return "Runtime failure";
+		default:
+			return "Failure";
+	}
+}
+
 function getCardAccent(index: number, r: SingleResult): CardAccent {
 	const seedText = [r.agent, r.task, r.summary, String(index)].join("|");
 	const random = createSeededRandom(hashString(seedText));
@@ -312,8 +343,8 @@ function getCardHeader(r: SingleResult, accent: CardAccent, theme: RenderTheme):
 	}
 	if (isResultError(r)) {
 		return {
-			title: theme.fg("error", `# ${baseTitle}`),
-			status: theme.fg("error", "failed"),
+			title: `${theme.fg("error", "✕ ")}${colorizeRgb(baseTitle, accent.title)}`,
+			status: "",
 		};
 	}
 	return {
@@ -448,8 +479,9 @@ function cardSessionLine(
 
 function cardActivityLine(r: SingleResult, theme: RenderTheme): string {
 	if (isResultError(r)) {
+		const label = formatFailureLineLabel(r);
 		const message = cleanSingleLine(r.errorMessage || r.stderr || r.stopReason || "failed");
-		return theme.fg("error", `Error: ${message || "failed"}`);
+		return theme.fg("error", `${label}: ${message || "failed"}`);
 	}
 
 	if (r.lastTool) {
@@ -517,9 +549,7 @@ function renderCard(
 	}
 
 	const contentWidth = Math.max(1, width - 2);
-	const stripe = (text: string) =>
-		isResultError(r) ? theme.fg("error", text) : colorizeRgb(text, accent.stripe);
-	const row = (content: string) => stripe("▌") + " " + padAnsi(content, contentWidth);
+	const row = (content: string) => colorizeRgb("▌", accent.stripe) + " " + padAnsi(content, contentWidth);
 
 	const lines = [row(joinLeftRight(title, status, contentWidth))];
 	if (taskLine) lines.push(row(taskLine));
@@ -670,8 +700,10 @@ function appendCommonDetails(container: Container, r: SingleResult, theme: Rende
 
 	if (isResultError(r)) {
 		const errorText = cleanSingleLine(r.errorMessage || r.stderr || r.stopReason || "failed");
+		const category = formatFailureCategory(getFailureCategory(r));
+		container.addChild(new Spacer(1));
+		container.addChild(new Text(theme.fg("error", `Failure category: ${category}`), 0, 0));
 		if (errorText) {
-			container.addChild(new Spacer(1));
 			container.addChild(new Text(theme.fg("error", `Error: ${errorText}`), 0, 0));
 		}
 	}

@@ -484,6 +484,36 @@ describe("subagent index", () => {
     expect(result.details.results[0]?.summary).toBe("Implement feature");
   });
 
+  it("surfaces categorized single-task failures in the result text", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+    runAgentImpl = async (opts) =>
+      makeResult({
+        agent: opts.agentName,
+        agentSource: "user",
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+        exitCode: 1,
+        stopReason: "error",
+        failureCategory: "startup",
+        errorMessage: "Failed to start child process.",
+        messages: [],
+      });
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      { agent: "worker", summary: "Failure", task: "Fail now" },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toBe("Agent startup failed: Failed to start child process.");
+    expect(result.details.results[0]?.failureCategory).toBe("startup");
+  });
+
   it("uses per-task modes in parallel runs with task-level precedence over the top-level default", async () => {
     discoverAgentsResult = {
       agents: [
@@ -616,6 +646,62 @@ describe("subagent index", () => {
     expect(result.content[0]?.text).toContain("[reviewer] completed: reviewer complete");
     expect(result.details.mode).toBe("parallel");
     expect(result.details.results).toHaveLength(2);
+  });
+
+  it("surfaces categorized parallel failures in the aggregate summary", async () => {
+    discoverAgentsResult = {
+      agents: [makeAgent(), makeAgent({ name: "reviewer", description: "Reviews work" })],
+      projectAgentsDir: null,
+    };
+
+    runAgentImpl = async (opts) => {
+      if (opts.agentName === "worker") {
+        return makeResult({
+          agent: opts.agentName,
+          agentSource: "user",
+          task: opts.task,
+          summary: opts.summary,
+          delegationMode: opts.delegationMode,
+          exitCode: 1,
+          stopReason: "error",
+          failureCategory: "runtime",
+          errorMessage: "Tests failed in child task.",
+          messages: [],
+        });
+      }
+
+      return makeResult({
+        agent: opts.agentName,
+        agentSource: "user",
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: `${opts.agentName} complete` }],
+          },
+        ],
+      });
+    };
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      {
+        tasks: [
+          { agent: "worker", summary: "Write", task: "Write docs" },
+          { agent: "reviewer", summary: "Review", task: "Review docs" },
+        ],
+      },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(result.content[0]?.text).toContain("Parallel: 1/2 succeeded");
+    expect(result.content[0]?.text).toContain("[worker] runtime failed: Tests failed in child task.");
+    expect(result.content[0]?.text).toContain("[reviewer] completed: reviewer complete");
   });
 
   it("rejects parallel batches above the hard task limit", async () => {

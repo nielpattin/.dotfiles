@@ -39,6 +39,9 @@ export interface ToolActivity {
 	finishedAt?: number;
 }
 
+/** Machine-readable failure category for failed subagent runs. */
+export type FailureCategory = "validation" | "startup" | "abort" | "runtime";
+
 /** Result of a single subagent invocation. */
 export interface SingleResult {
 	agent: string;
@@ -62,6 +65,7 @@ export interface SingleResult {
 	thinking?: string;
 	stopReason?: string;
 	errorMessage?: string;
+	failureCategory?: FailureCategory;
 }
 
 /** Metadata attached to every tool result for rendering. */
@@ -96,9 +100,36 @@ export function aggregateUsage(results: SingleResult[]): UsageStats {
 	return total;
 }
 
+/** Best-effort failure category for a subagent result. */
+export function getFailureCategory(r: SingleResult): FailureCategory | undefined {
+	if (r.failureCategory) return r.failureCategory;
+	if (r.stopReason === "aborted") return "abort";
+	if (r.exitCode <= 0 && r.stopReason !== "error") return undefined;
+
+	const errorText = `${r.errorMessage || ""}\n${r.stderr || ""}`;
+	if (
+		errorText.includes("Unknown agent:") ||
+		errorText.includes("missing parent session snapshot context") ||
+		errorText.includes("Invalid mode") ||
+		errorText.includes("Invalid parallel task parameters") ||
+		errorText.includes("Invalid single-task parameters") ||
+		errorText.includes("Provide exactly one invocation shape")
+	) {
+		return "validation";
+	}
+	if (
+		errorText.includes("Failed to resolve Pi CLI script on Windows") ||
+		errorText.includes("Failed to start task process") ||
+		errorText.includes("Spawn error:")
+	) {
+		return "startup";
+	}
+	return "runtime";
+}
+
 /** Whether a result represents an error. */
 export function isResultError(r: SingleResult): boolean {
-	return r.exitCode > 0 || r.stopReason === "error" || r.stopReason === "aborted";
+	return getFailureCategory(r) !== undefined;
 }
 
 function isObjectPart(part: unknown): part is Record<string, unknown> {

@@ -245,13 +245,14 @@ When running multiple agents in parallel:
 - All task agents start simultaneously (up to 4 concurrent)
 - Each task uses `tasks[i].mode` when present; otherwise it falls back to the top-level `mode`
 - Mixed `spawn` + `fork` batches share one parent snapshot build, and only `fork` tasks receive it
+- Failed tasks are summarized with a failure category (`validation`, `startup`, `abort`, `runtime`)
 - Main agent receives a combined result after all finish:
 
 ```
-Parallel: 3/3 succeeded
+Parallel: 2/3 succeeded
 
 [writer] completed: Full output text here...
-[tester] completed: Full output text here...
+[tester] runtime failed: Test suite exited with status 1
 [reviewer] completed: Full output text here...
 ```
 
@@ -259,9 +260,10 @@ Parallel: 3/3 succeeded
 
 - **Auto-Discovery** — Agents are discovered on session start for UI visibility and refreshed before prompt injection/execution to stay aligned with the current filesystem state.
 - **Context Mode Switch** — `spawn` (fresh context) and `fork` (session snapshot + task), with per-task overrides in parallel batches.
+- **Failure Categories** — Failed runs are normalized into `validation`, `startup`, `abort`, or `runtime` so summaries and cards are easier to triage.
 - **Depth Guard** — Delegation depth is limited by default to prevent recursive task spawning.
 - **Streaming Updates** — Watch task progress in real-time as tool calls and outputs stream in.
-- **Rich TUI Rendering** — Collapsed/expanded views with task previews, usage stats, tool call previews, and markdown output.
+- **Rich TUI Rendering** — Collapsed/expanded views with task previews, usage stats, tool call previews, markdown output, and explicit failure categories.
 - **Security Confirmation** — Project-local agents require explicit user approval before execution.
 
 ## Project Structure
@@ -300,8 +302,10 @@ Current tests:
 - `project agent decline` — cancels execution when the user rejects project-local agents
 - `project agent non-UI block` — blocks project-local agents in non-UI mode unless confirmation is disabled
 - `single-task execution wiring` — passes the resolved runner options and returns the final child output
+- `categorized single-task failure summary` — includes the normalized failure category in single-task error text
 - `parallel per-task mode precedence` — lets task-level mode override the top-level default and only forwards fork snapshots to fork tasks
 - `parallel execution wiring` — runs tasks concurrently, forwards fork snapshots, and aggregates results
+- `categorized parallel failure summary` — includes normalized failure categories in parallel summaries
 - `parallel task cap` — rejects batches above the hard max of 8 tasks
 
 ### `render.test.ts`
@@ -309,19 +313,20 @@ Current tests:
 - `collapsed single-card states + task previews` — shows the right running, failed, and completed card status lines plus the collapsed task preview
 - `narrow collapsed task preview` — collapses multiline task text into one stable preview line in narrow cards
 - `expanded single details` — renders task, skills, tool trace, and final output sections
+- `expanded failure details` — shows failure category separately from the raw error text
 - `collapsed parallel summaries` — limits visible cards, shows task previews for visible cards, and shows the hidden-task count
 - `mixed parallel mode labels` — shows each task's actual `spawn` / `fork` mode in the summary cards
 
 ### `runner.test.ts`
 
 - `successful child run` — child process completes, output is captured, and task env vars are passed through
-- `unknown agent rejection` — fails before spawn when the requested agent does not exist
-- `fork requires snapshot` — rejects `fork` mode when no parent session snapshot is provided
+- `unknown agent rejection` — fails before spawn when the requested agent does not exist and classifies it as validation
+- `fork requires snapshot` — rejects `fork` mode when no parent session snapshot is provided and classifies it as validation
 - `streamed event parsing` — reads session, tool, tool-result, and assistant events into the final result
-- `spawn startup error` — surfaces child process startup failures
-- `stderr + non-zero exit` — preserves child stderr and exit code on failure
+- `spawn startup error` — surfaces child process startup failures and classifies them as startup
+- `stderr + non-zero exit` — preserves child stderr, exit code, and classifies the failure as runtime
 - `skill loading` — loads skill content, records skill metadata, and uses task cwd for lookup
 - `temp file cleanup` — creates and removes temp files for system prompt and fork session input
-- `parent abort` — sends `SIGTERM` and returns an aborted result
+- `parent abort` — sends `SIGTERM` and returns an abort-classified result
 - `mapConcurrent ordering + limit` — keeps result order and respects the concurrency cap
 - `mapConcurrent empty input` — returns an empty array when there is no work

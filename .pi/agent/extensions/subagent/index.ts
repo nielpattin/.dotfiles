@@ -25,6 +25,7 @@ import {
   type SubagentDetails,
   DEFAULT_DELEGATION_MODE,
   emptyUsage,
+  getFailureCategory,
   getFinalOutput,
   isResultError,
 } from "./types.js";
@@ -250,7 +251,9 @@ function formatAgentNames(agents: AgentConfig[]): string {
 }
 
 function getResultStatusLabel(result: SingleResult): string {
-  if (result.stopReason === "aborted") return "aborted";
+  const failureCategory = getFailureCategory(result);
+  if (failureCategory === "abort") return "aborted";
+  if (failureCategory) return `${failureCategory} failed`;
   if (result.exitCode === 0) return "completed";
   return result.stopReason || "failed";
 }
@@ -842,10 +845,13 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       if (heartbeat) clearInterval(heartbeat);
     }
 
-    const successCount = results.filter((r) => r.exitCode === 0).length;
+    const successCount = results.filter((r) => !isResultError(r)).length;
     const summaries = results.map((r) => {
       const output = getFinalOutput(r.messages);
-      return `[${r.agent}] ${getResultStatusLabel(r)}: ${output || "(no output)"}`;
+      const summaryText = isResultError(r)
+        ? r.errorMessage || r.stderr || output || "(no output)"
+        : output || "(no output)";
+      return `[${r.agent}] ${getResultStatusLabel(r)}: ${summaryText}`;
     });
 
     return {

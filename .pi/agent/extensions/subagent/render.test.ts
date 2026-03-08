@@ -154,6 +154,7 @@ describe("subagent render", () => {
         makeResult({
           exitCode: 1,
           stopReason: "error",
+          failureCategory: "startup",
           errorMessage: "Task blew up.",
           messages: [],
         }),
@@ -163,9 +164,11 @@ describe("subagent render", () => {
       theme as any,
     );
     const failedLines = renderSummaryLines(failed);
+    expect(failedLines.join("\n")).toContain("✕ ");
+    expect(failedLines.join("\n")).toContain("Worker — Default summary");
     expect(failedLines.join("\n")).toContain("Task: Default task");
-    expect(failedLines.join("\n")).toContain("failed");
-    expect(failedLines.join("\n")).toContain("Error: Task blew up.");
+    expect(failedLines.join("\n")).not.toContain("startup failed");
+    expect(failedLines.join("\n")).toContain("Startup failure: Task blew up.");
 
     const completed = renderResult(
       makeToolResult(makeDetails([
@@ -186,6 +189,38 @@ describe("subagent render", () => {
     expect(completedLines.join("\n")).toContain("Task: Default task");
     expect(completedLines.join("\n")).toContain("Done");
     expect(completedLines.join("\n")).toContain("Result: finished successfully");
+  });
+
+  it("keeps failed card titles stable and moves abort status out of the summary row", () => {
+    const theme = {
+      fg(color: string, text: string) {
+        return `<${color}>${text}</${color}>`;
+      },
+      bold(text: string) {
+        return text;
+      },
+    };
+
+    const rendered = renderResult(
+      makeToolResult(makeDetails([
+        makeResult({
+          exitCode: 130,
+          stopReason: "aborted",
+          failureCategory: "abort",
+          errorMessage: "Task was aborted.",
+          messages: [],
+        }),
+      ])),
+      false,
+      false,
+      theme as any,
+    );
+
+    const lines = rendered.render(500);
+    expect(lines[0]).toContain("<error>✕ </error>");
+    expect(lines[0]).not.toContain("aborted");
+    expect(lines[0]).not.toContain("<error># Worker — Default summary</error>");
+    expect(lines.join("\n")).toContain("Aborted: Task was aborted.");
   });
 
   it("collapses multiline task previews to one line in narrow cards", () => {
@@ -256,6 +291,28 @@ describe("subagent render", () => {
     expect(text).toContain("read src/index.ts");
     expect(text).toContain("─── Output ───");
     expect(text).toContain("Final answer");
+  });
+
+  it("renders failure categories distinctly from raw error text in expanded details", () => {
+    const theme = makeTheme();
+    const rendered = renderResult(
+      makeToolResult(makeDetails([
+        makeResult({
+          exitCode: 1,
+          stopReason: "error",
+          failureCategory: "runtime",
+          errorMessage: "Command exited with status 7.",
+          messages: [],
+        }),
+      ])),
+      true,
+      false,
+      theme as any,
+    );
+
+    const text = collectRenderableText(rendered).join("\n");
+    expect(text).toContain("Failure category: runtime");
+    expect(text).toContain("Error: Command exited with status 7.");
   });
 
   it("renders collapsed parallel summaries with task previews and hidden task counts", () => {
