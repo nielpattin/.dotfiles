@@ -7,7 +7,9 @@
   "defaultThinkingLevel": "high",
   "theme": "catppuccin-mocha",
   "transport": "sse",
-  "packages": [],
+  "packages": [
+    "git:https://github.com/calesennett/pi-codex-fast"
+  ],
   "skills": [
     "-..\\..\\.agents\\skills\\prd\\SKILL.md",
     "-..\\..\\.agents\\skills\\prd-task\\SKILL.md",
@@ -61,5 +63,8 @@
   ],
   "quietStartup": false,
   "doubleEscapeAction": "none",
-  "treeFilterMode": "user-only"
+  "treeFilterMode": "user-only",
+  "pi-codex-fast": {
+    "enabled": false
+  }
 }

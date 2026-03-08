@@ -112,7 +112,10 @@ $defaultPiArgs = @(
     '--thinking', 'medium',
     '--tools', 'read,bash',
     '--provider', 'openai-codex',
-    '--model', 'gpt-5.3-codex'
+    '--model', 'gpt-5.3-codex',
+    '--no-extensions',
+    '--no-prompt-templates',
+    '--no-skills'
 )
 
 $allPiArgs = $defaultPiArgs + $PiArgs + @($prompt)
