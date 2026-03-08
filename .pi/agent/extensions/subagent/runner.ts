@@ -642,6 +642,34 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       });
 
       let buffer = "";
+      let settled = false;
+      let forceKillTimer: NodeJS.Timeout | undefined;
+      let abortListener: (() => void) | undefined;
+
+      const cleanup = () => {
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+        if (signal && abortListener) {
+          signal.removeEventListener("abort", abortListener);
+        }
+      };
+
+      const finish = (code: number) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(code);
+      };
+
+      const requestAbort = (): boolean => {
+        if (settled || wasAborted) return false;
+        wasAborted = true;
+        result.updatedAt = Date.now();
+        proc.kill("SIGTERM");
+        forceKillTimer = setTimeout(() => {
+          if (proc.exitCode === null) proc.kill("SIGKILL");
+        }, SIGKILL_TIMEOUT_MS);
+        return true;
+      };
 
       const flushLine = (line: string) => {
         if (processJsonLine(line, result)) emitUpdate();
@@ -662,7 +690,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       proc.on("close", (code) => {
         result.updatedAt = Date.now();
         if (buffer.trim()) flushLine(buffer);
-        resolve(code ?? 0);
+        finish(code ?? 0);
       });
 
       proc.on("error", (err) => {
@@ -671,22 +699,26 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
         if (!result.stderr.includes(message)) {
           result.stderr += `Spawn error: ${message}\n`;
         }
-        result.stopReason = "error";
-        result.errorMessage = `Failed to start task process (${spawnTarget.command}).`;
-        resolve(1);
+        if (!wasAborted) {
+          result.stopReason = "error";
+          result.errorMessage = `Failed to start task process (${spawnTarget.command}).`;
+        }
+        finish(1);
       });
 
       // Abort handling
       if (signal) {
-        const kill = () => {
-          wasAborted = true;
-          proc.kill("SIGTERM");
-          setTimeout(() => {
-            if (!proc.killed) proc.kill("SIGKILL");
-          }, SIGKILL_TIMEOUT_MS);
+        abortListener = () => {
+          if (!requestAbort()) return;
+          result.stopReason = "aborted";
+          result.errorMessage = "Task was aborted.";
+          if (!result.stderr.includes("Task was aborted.")) {
+            result.stderr += "Task was aborted.\n";
+          }
+          emitUpdate();
         };
-        if (signal.aborted) kill();
-        else signal.addEventListener("abort", kill, { once: true });
+        if (signal.aborted) abortListener();
+        else signal.addEventListener("abort", abortListener, { once: true });
       }
     });
 
@@ -698,7 +730,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       result.exitCode = 130;
       result.stopReason = "aborted";
       result.errorMessage = "Task was aborted.";
-      if (!result.stderr.trim()) result.stderr = "Task was aborted.";
+      if (!result.stderr.includes("Task was aborted.")) {
+        result.stderr += "Task was aborted.";
+      }
     }
     return result;
   } finally {

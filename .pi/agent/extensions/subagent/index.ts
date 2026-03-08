@@ -163,6 +163,7 @@ function parseNonNegativeInt(raw: unknown): number | null {
 function getMaxDepthFlagFromArgv(argv: string[]): string | null {
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
+    if (!arg) continue;
     if (arg === "--task-max-depth") {
       return argv[i + 1] ?? "";
     }
@@ -235,6 +236,12 @@ function makeDetailsFactory(
 
 function formatAgentNames(agents: AgentConfig[]): string {
   return agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
+}
+
+function getResultStatusLabel(result: SingleResult): string {
+  if (result.stopReason === "aborted") return "aborted";
+  if (result.exitCode === 0) return "completed";
+  return result.stopReason || "failed";
 }
 
 /** Get project-local agents referenced by the current request. */
@@ -391,9 +398,8 @@ Use single mode for one task, parallel mode when tasks are independent and can r
 
         let forkSessionSnapshotJsonl: string | undefined;
         if (delegationMode === "fork") {
-          forkSessionSnapshotJsonl = buildForkSessionSnapshotJsonl(
-            ctx.sessionManager,
-          );
+          forkSessionSnapshotJsonl =
+            buildForkSessionSnapshotJsonl(ctx.sessionManager) ?? undefined;
           if (!forkSessionSnapshotJsonl) {
             return {
               content: [
@@ -416,7 +422,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
             && hasNonBlankText(task.task)
             && (task.cwd === undefined || typeof task.cwd === "string"),
           );
-        const hasAnySingleField =
+        const hasAnySingleShapeField =
           params.agent !== undefined
           || params.summary !== undefined
           || params.task !== undefined
@@ -438,7 +444,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
             isError: true,
           };
         }
-        if (hasAnySingleField && !hasSingleTask) {
+        if (!hasParallelTasks && hasAnySingleShapeField && !hasSingleTask) {
           return {
             content: [
               {
@@ -450,7 +456,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
             isError: true,
           };
         }
-        if ((hasParallelTasks && hasAnySingleField) || (!hasParallelTasks && !hasSingleTask)) {
+        if ((hasParallelTasks && hasAnySingleShapeField) || (!hasParallelTasks && !hasSingleTask)) {
           return {
             content: [
               {
@@ -464,13 +470,17 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         }
 
         const isParallel = hasParallelTasks;
+        const parallelTasks = hasParallelTasks ? params.tasks! : undefined;
+        const singleAgent = hasSingleTask ? params.agent! : undefined;
+        const singleTask = hasSingleTask ? params.task! : undefined;
+        const singleSummary = hasSingleTask ? params.summary! : undefined;
 
         // Security: guard project-local agents before running
         const requested = new Set<string>();
         if (isParallel) {
-          for (const t of params.tasks) requested.add(t.agent);
+          for (const t of parallelTasks!) requested.add(t.agent);
         } else {
-          requested.add(params.agent);
+          requested.add(singleAgent!);
         }
 
         const requestedProjectAgents = getRequestedProjectAgents(
@@ -517,7 +527,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         // ── Parallel mode ──
         if (isParallel) {
           return executeParallel(
-            params.tasks,
+            parallelTasks!,
             delegationMode,
             inheritedThinking,
             forkSessionSnapshotJsonl,
@@ -531,9 +541,9 @@ Use single mode for one task, parallel mode when tasks are independent and can r
 
         // ── Single mode ──
         return executeSingle(
-          params.agent,
-          params.task,
-          params.summary,
+          singleAgent!,
+          singleTask!,
+          singleSummary!,
           params.cwd,
           delegationMode,
           inheritedThinking,
@@ -652,7 +662,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         content: [
           {
             type: "text" as const,
-            text: `Agent ${result.stopReason || "failed"}: ${errorMsg}`,
+            text: `Agent ${getResultStatusLabel(result)}: ${errorMsg}`,
           },
         ],
         details: makeDetails("single")([result]),
@@ -671,7 +681,12 @@ Use single mode for one task, parallel mode when tasks are independent and can r
   }
 
   async function executeParallel(
-    tasks: Array<{ agent: string; task: string; summary: string; cwd?: string }>,
+    tasks: Array<{
+      agent: string;
+      task: string;
+      summary: string;
+      cwd?: string;
+    }>,
     delegationMode: DelegationMode,
     inheritedThinking: string,
     forkSessionSnapshotJsonl: string | undefined,
@@ -776,7 +791,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
     const successCount = results.filter((r) => r.exitCode === 0).length;
     const summaries = results.map((r) => {
       const output = getFinalOutput(r.messages);
-      return `[${r.agent}] ${r.exitCode === 0 ? "completed" : "failed"}: ${output || "(no output)"}`;
+      return `[${r.agent}] ${getResultStatusLabel(r)}: ${output || "(no output)"}`;
     });
 
     return {

@@ -4,7 +4,11 @@
 
 import * as os from "node:os";
 import { getModels } from "@mariozechner/pi-ai";
-import { getMarkdownTheme, keyHint } from "@mariozechner/pi-coding-agent";
+import {
+	type Theme,
+	getMarkdownTheme,
+	keyHint,
+} from "@mariozechner/pi-coding-agent";
 import {
 	Container,
 	Markdown,
@@ -30,8 +34,8 @@ const COLLAPSED_CARD_LIMIT = 4;
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_FRAME_MS = 80;
 
-type ThemeFg = (color: string, text: string) => string;
-type RenderTheme = { fg: ThemeFg; bold: (s: string) => string };
+type ThemeFg = Theme["fg"];
+type RenderTheme = Pick<Theme, "fg" | "bold">;
 type Rgb = { r: number; g: number; b: number };
 type CardAccent = { title: Rgb; stripe: Rgb };
 
@@ -371,7 +375,7 @@ function firstSentence(text: string): string {
 	const compact = cleanSingleLine(text);
 	if (!compact) return "";
 	const match = compact.match(/^(.+?[.!?])(?=\s|$)/);
-	return match ? match[1] : compact;
+	return match?.[1] ?? compact;
 }
 
 function shortenSessionName(name: string, maxLen = 24): string {
