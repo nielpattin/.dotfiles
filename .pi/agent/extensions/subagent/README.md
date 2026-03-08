@@ -127,6 +127,45 @@ Precedence rule for parallel batches:
 
 `summary` is required for each delegated task. It controls the task card header (`<AgentName> — <summary>`) and does not change the delegated `task` prompt.
 
+### Smoke tests
+
+These examples are meant to be copy/paste setup checks. They assume you already have a user agent named `worker` configured.
+
+#### Single-task smoke test
+
+```json
+{ "agent": "worker", "summary": "Smoke test", "task": "Reply with exactly: smoke ok" }
+```
+
+What you should see:
+
+- one task card titled `Worker — Smoke test`
+- a short final response close to `smoke ok`
+- no validation error about missing required fields
+
+#### Parallel smoke test
+
+```json
+{
+  "tasks": [
+    { "agent": "worker", "summary": "Smoke A", "task": "Reply with exactly: parallel a ok" },
+    { "agent": "worker", "summary": "Smoke B", "task": "Reply with exactly: parallel b ok" }
+  ]
+}
+```
+
+What you should see:
+
+- two task cards running under one parallel batch
+- a final summary that starts with something like `Parallel: 2/2 succeeded`
+- one result line for `Smoke A` and one for `Smoke B`
+
+Notes:
+
+- If you use different agent names locally, replace `worker` with one that exists in your setup.
+- For the cleanest smoke test, prefer user agents over project-local agents so you do not hit the confirmation prompt.
+- `fork` mode is better verified after you already have some session history; start with `spawn` for first-run checks.
+
 ### Task Agent Definitions
 
 Task Agents are defined as Markdown files with YAML frontmatter.
@@ -240,7 +279,7 @@ What it can see depends on `mode`:
 
 #### `spawn` mode (default)
 
-`task({ agent: "writer", task: "Document the API" })` sends:
+`task({ agent: "writer", summary: "API docs", task: "Document the API" })` sends:
 
 ```
 [System Prompt from ~/.pi/agent/agents/writer.md]
@@ -252,7 +291,7 @@ No parent conversation history is included. In `spawn`, include all required con
 
 #### `fork` mode
 
-`task({ agent: "writer", task: "Document the API", mode: "fork" })` sends:
+`task({ agent: "writer", summary: "API docs", task: "Document the API", mode: "fork" })` sends:
 
 ```
 [Forked snapshot of current session context]
