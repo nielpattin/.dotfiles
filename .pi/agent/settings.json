@@ -8,7 +8,8 @@
   "theme": "catppuccin-mocha",
   "transport": "sse",
   "packages": [
-    "git:https://github.com/calesennett/pi-codex-fast"
+    "git:https://github.com/calesennett/pi-codex-fast",
+    "npm:pi-mcporter"
   ],
   "skills": [
     "-..\\..\\.agents\\skills\\prd\\SKILL.md",
