@@ -133,7 +133,7 @@ function collectRenderableText(node: any): string[] {
 }
 
 describe("subagent render", () => {
-  it("renders collapsed single cards for running, failed, and completed states", () => {
+  it("renders collapsed single cards with task previews for running, failed, and completed states", () => {
     const theme = makeTheme();
 
     const running = renderResult(
@@ -145,6 +145,7 @@ describe("subagent render", () => {
       theme as any,
     );
     const runningLines = renderSummaryLines(running);
+    expect(runningLines.join("\n")).toContain("Task: Default task");
     expect(runningLines.join("\n")).toContain("Current: waiting for first tool call");
     expect(runningLines.join("\n")).toContain("Source: spawn");
 
@@ -162,6 +163,7 @@ describe("subagent render", () => {
       theme as any,
     );
     const failedLines = renderSummaryLines(failed);
+    expect(failedLines.join("\n")).toContain("Task: Default task");
     expect(failedLines.join("\n")).toContain("failed");
     expect(failedLines.join("\n")).toContain("Error: Task blew up.");
 
@@ -181,8 +183,28 @@ describe("subagent render", () => {
       theme as any,
     );
     const completedLines = renderSummaryLines(completed);
+    expect(completedLines.join("\n")).toContain("Task: Default task");
     expect(completedLines.join("\n")).toContain("Done");
     expect(completedLines.join("\n")).toContain("Result: finished successfully");
+  });
+
+  it("collapses multiline task previews to one line in narrow cards", () => {
+    const theme = makeTheme();
+    const rendered = renderResult(
+      makeToolResult(makeDetails([
+        makeResult({
+          task: "  Investigate\n\nsubagent render.ts\tpreview handling  ",
+          messages: [],
+        }),
+      ])),
+      false,
+      false,
+      theme as any,
+    );
+
+    const lines = rendered.render(26).join("\n");
+    expect(lines).toContain("Task: Investigate suba");
+    expect(lines).not.toContain("\n\n");
   });
 
   it("renders expanded single results with task, skills, tool trace, and output sections", () => {
@@ -236,17 +258,17 @@ describe("subagent render", () => {
     expect(text).toContain("Final answer");
   });
 
-  it("renders collapsed parallel summaries with hidden task counts", () => {
+  it("renders collapsed parallel summaries with task previews and hidden task counts", () => {
     const theme = makeTheme();
     const rendered = renderResult(
       makeToolResult(
         makeDetails(
           [
-            makeResult({ agent: "worker", summary: "One" }),
-            makeResult({ agent: "reviewer", summary: "Two" }),
-            makeResult({ agent: "planner", summary: "Three" }),
-            makeResult({ agent: "writer", summary: "Four" }),
-            makeResult({ agent: "tester", summary: "Five" }),
+            makeResult({ agent: "worker", summary: "One", task: "Inspect src/index.ts" }),
+            makeResult({ agent: "reviewer", summary: "Two", task: "Review the failing tests" }),
+            makeResult({ agent: "planner", summary: "Three", task: "Outline the rollout plan" }),
+            makeResult({ agent: "writer", summary: "Four", task: "Draft the changelog entry" }),
+            makeResult({ agent: "tester", summary: "Five", task: "Verify the hidden fifth card" }),
           ],
           "parallel",
         ),
@@ -258,9 +280,11 @@ describe("subagent render", () => {
 
     const lines = renderSummaryLines(rendered).join("\n");
     expect(lines).toContain("Worker — One");
-    expect(lines).toContain("Writer — Four");
+    expect(lines).toContain("Task: Inspect src/index.ts");
+    expect(lines).toContain("Task: Draft the changelog entry");
     expect(lines).toContain("1 more task");
     expect(lines).not.toContain("Tester — Five");
+    expect(lines).not.toContain("Task: Verify the hidden fifth card");
   });
 
   it("renders per-task delegation modes for mixed parallel batches", () => {

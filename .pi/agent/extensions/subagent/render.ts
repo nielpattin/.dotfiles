@@ -421,8 +421,13 @@ function sessionIdentity(r: SingleResult): string | null {
 	return null;
 }
 
-function cardTaskLine(_r: SingleResult, _theme: RenderTheme): string | null {
-	return null;
+function cardTaskLine(r: SingleResult, theme: RenderTheme): string | null {
+	const preview = truncateText(cleanSingleLine(r.task), 240);
+	if (!preview) return null;
+	return truncateToWidth(
+		theme.fg("muted", "Task: ") + theme.fg("text", preview),
+		500,
+	);
 }
 
 function cardSessionLine(

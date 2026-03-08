@@ -261,7 +261,7 @@ Parallel: 3/3 succeeded
 - **Context Mode Switch** — `spawn` (fresh context) and `fork` (session snapshot + task), with per-task overrides in parallel batches.
 - **Depth Guard** — Delegation depth is limited by default to prevent recursive task spawning.
 - **Streaming Updates** — Watch task progress in real-time as tool calls and outputs stream in.
-- **Rich TUI Rendering** — Collapsed/expanded views with usage stats, tool call previews, and markdown output.
+- **Rich TUI Rendering** — Collapsed/expanded views with task previews, usage stats, tool call previews, and markdown output.
 - **Security Confirmation** — Project-local agents require explicit user approval before execution.
 
 ## Project Structure
@@ -306,9 +306,10 @@ Current tests:
 
 ### `render.test.ts`
 
-- `collapsed single-card states` — shows the right running, failed, and completed card status lines
+- `collapsed single-card states + task previews` — shows the right running, failed, and completed card status lines plus the collapsed task preview
+- `narrow collapsed task preview` — collapses multiline task text into one stable preview line in narrow cards
 - `expanded single details` — renders task, skills, tool trace, and final output sections
-- `collapsed parallel summaries` — limits visible cards and shows the hidden-task count
+- `collapsed parallel summaries` — limits visible cards, shows task previews for visible cards, and shows the hidden-task count
 - `mixed parallel mode labels` — shows each task's actual `spawn` / `fork` mode in the summary cards
 
 ### `runner.test.ts`
