@@ -97,6 +97,7 @@ mock.module("@mariozechner/pi-coding-agent", () => ({
   },
 }));
 
+// @ts-expect-error test-only query string keeps this import isolated from other test modules
 const { mapConcurrent, runAgent } = await import("./runner.ts?runner-test");
 
 const testRootDir = fs.mkdtempSync(
@@ -340,7 +341,7 @@ describe("runAgent", () => {
       delegationMode: "spawn",
       parentDepth: 0,
       maxDepth: 1,
-      onUpdate: (partial) => updates.push(partial),
+      onUpdate: (partial: any) => updates.push(partial),
       makeDetails,
     });
 
@@ -568,7 +569,7 @@ describe("mapConcurrent", () => {
     let active = 0;
     let maxActive = 0;
 
-    const results = await mapConcurrent([40, 10, 25, 5], 2, async (delayMs, index) => {
+    const results = await mapConcurrent([40, 10, 25, 5], 2, async (delayMs: number, index: number) => {
       active++;
       maxActive = Math.max(maxActive, active);
       await delay(delayMs);

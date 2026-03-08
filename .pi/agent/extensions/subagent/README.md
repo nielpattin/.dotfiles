@@ -255,6 +255,7 @@ runner.ts      — Process runner: starts `pi` subprocesses in spawn/fork contex
 render.ts      — TUI rendering: renderCall and renderResult for the task tool
 types.ts       — Shared types and pure helper functions
 index.test.ts  — Bun tests for tool validation, confirmation gates, and single/parallel orchestration
+render.test.ts — Bun tests for collapsed/expanded rendering and status-state coverage
 runner.test.ts — Bun tests for runner lifecycle behavior
 ```
 
@@ -263,7 +264,7 @@ runner.test.ts — Bun tests for runner lifecycle behavior
 Run:
 
 ```bash
-bun test extensions/subagent/index.test.ts extensions/subagent/runner.test.ts
+bun test extensions/subagent/index.test.ts extensions/subagent/render.test.ts extensions/subagent/runner.test.ts
 ```
 
 Current tests:
@@ -281,6 +282,12 @@ Current tests:
 - `single-task execution wiring` — passes the resolved runner options and returns the final child output
 - `parallel execution wiring` — runs tasks concurrently, forwards fork snapshots, and aggregates results
 - `parallel task cap` — rejects batches above the hard max of 8 tasks
+
+### `render.test.ts`
+
+- `collapsed single-card states` — shows the right running, failed, and completed card status lines
+- `expanded single details` — renders task, skills, tool trace, and final output sections
+- `collapsed parallel summaries` — limits visible cards and shows the hidden-task count
 
 ### `runner.test.ts`
 
