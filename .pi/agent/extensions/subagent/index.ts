@@ -288,30 +288,37 @@ export default function (pi: ExtensionAPI) {
 
   let discoveredAgents: AgentConfig[] = [];
 
+  function refreshDiscoveredAgents(cwd: string): AgentConfig[] {
+    const discovery = discoverAgents(cwd, "both");
+    discoveredAgents = discovery.agents;
+    return discoveredAgents;
+  }
+
   // Auto-discover agents on session start
   pi.on("session_start", async (_event, ctx) => {
     if (!canDelegate) return;
 
-    const discovery = discoverAgents(ctx.cwd, "both");
-    discoveredAgents = discovery.agents;
+    const agents = refreshDiscoveredAgents(ctx.cwd);
 
-    if (discoveredAgents.length > 0 && ctx.hasUI) {
-      const list = discoveredAgents
+    if (agents.length > 0 && ctx.hasUI) {
+      const list = agents
         .map((a) => `  - ${a.name} (${a.source})`)
         .join("\n");
       ctx.ui.notify(
-        `Found ${discoveredAgents.length} task agent(s):\n${list}`,
+        `Found ${agents.length} task agent(s):\n${list}`,
         "info",
       );
     }
   });
 
   // Inject available agents into the system prompt
-  pi.on("before_agent_start", async (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     if (!canDelegate) return;
-    if (discoveredAgents.length === 0) return;
 
-    const agentList = discoveredAgents
+    const agents = ctx ? refreshDiscoveredAgents(ctx.cwd) : discoveredAgents;
+    if (agents.length === 0) return;
+
+    const agentList = agents
       .map((a) => `- **${a.name}**: ${a.description}`)
       .join("\n");
     return {

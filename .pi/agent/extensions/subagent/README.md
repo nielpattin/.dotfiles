@@ -239,7 +239,7 @@ Parallel: 3/3 succeeded
 
 ## Features
 
-- **Auto-Discovery** — Agents are found at startup and their descriptions are injected into the main agent's system prompt.
+- **Auto-Discovery** — Agents are discovered on session start for UI visibility and refreshed before prompt injection/execution to stay aligned with the current filesystem state.
 - **Context Mode Switch** — `spawn` (fresh context) and `fork` (session snapshot + task) per call.
 - **Depth Guard** — Delegation depth is limited by default to prevent recursive task spawning.
 - **Streaming Updates** — Watch task progress in real-time as tool calls and outputs stream in.

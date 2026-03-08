@@ -1,4 +1,13 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
+import * as path from "node:path";
+
+const TEST_HOME = path.join(path.sep, "home", "test");
+const TEST_REPO_CWD = path.join(path.sep, "repo");
+const TEST_PROJECT_AGENTS_DIR = path.join(TEST_REPO_CWD, ".pi", "agents");
+const TEST_USER_AGENT_FILE = path.join(TEST_HOME, ".pi", "agent", "agents", "worker.md");
+const TEST_PROJECT_AGENT_FILE = path.join(TEST_PROJECT_AGENTS_DIR, "reviewer.md");
+const TEST_APP_CWD = path.join(TEST_REPO_CWD, "packages", "app");
+const TEST_DOCS_CWD = path.join(TEST_REPO_CWD, "docs");
 
 type DiscoveryResult = {
   agents: any[];
@@ -110,7 +119,7 @@ function makeAgent(overrides: Record<string, any> = {}) {
     description: "General worker agent",
     source: "user",
     systemPrompt: "",
-    filePath: "C:\\Users\\niel\\.pi\\agent\\agents\\worker.md",
+    filePath: TEST_USER_AGENT_FILE,
     ...overrides,
   };
 }
@@ -148,7 +157,7 @@ function makeCtx(overrides: Record<string, any> = {}) {
   const confirm = mock(async () => true);
   const notify = mock(() => {});
   return {
-    cwd: "C:\\repo",
+    cwd: TEST_REPO_CWD,
     hasUI: false,
     sessionManager: makeSessionManager(true),
     ui: {
@@ -189,30 +198,41 @@ beforeEach(() => {
 });
 
 describe("subagent index", () => {
-  it("discovers agents on session start and injects them into the system prompt", async () => {
+  it("refreshes discovered agents before injecting them into the system prompt", async () => {
     discoverAgentsResult = {
       agents: [
         makeAgent({ name: "worker", description: "Handles implementation work" }),
-        makeAgent({
-          name: "reviewer",
-          description: "Reviews code changes",
-          source: "project",
-          filePath: "C:\\repo\\.pi\\agents\\reviewer.md",
-        }),
       ],
-      projectAgentsDir: "C:\\repo\\.pi\\agents",
+      projectAgentsDir: TEST_PROJECT_AGENTS_DIR,
     };
 
     const { pi } = createExtension();
     const ctx = makeCtx({ hasUI: true });
 
     await pi.emit("session_start", {}, ctx);
-    const injected = await pi.emit("before_agent_start", { systemPrompt: "Base prompt" });
 
-    expect(discoverAgentsCalls).toEqual([{ cwd: "C:\\repo", scope: "both" }]);
+    discoverAgentsResult = {
+      agents: [
+        makeAgent({
+          name: "reviewer",
+          description: "Reviews code changes",
+          source: "project",
+          filePath: TEST_PROJECT_AGENT_FILE,
+        }),
+      ],
+      projectAgentsDir: TEST_PROJECT_AGENTS_DIR,
+    };
+
+    const injected = await pi.emit("before_agent_start", { systemPrompt: "Base prompt" }, ctx);
+
+    expect(discoverAgentsCalls).toEqual([
+      { cwd: TEST_REPO_CWD, scope: "both" },
+      { cwd: TEST_REPO_CWD, scope: "both" },
+    ]);
     expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
+    expect((ctx.ui.notify as any).mock.calls[0]?.[0]).toContain("worker (user)");
     expect(injected.systemPrompt).toContain("## Available Task Agents");
-    expect(injected.systemPrompt).toContain("**worker**: Handles implementation work");
+    expect(injected.systemPrompt).not.toContain("**worker**: Handles implementation work");
     expect(injected.systemPrompt).toContain("**reviewer**: Reviews code changes");
     expect(injected.systemPrompt).toContain("'spawn' (default): child receives only the provided task prompt");
   });
@@ -322,10 +342,10 @@ describe("subagent index", () => {
         makeAgent({
           name: "reviewer",
           source: "project",
-          filePath: "C:\\repo\\.pi\\agents\\reviewer.md",
+          filePath: TEST_PROJECT_AGENT_FILE,
         }),
       ],
-      projectAgentsDir: "C:\\repo\\.pi\\agents",
+      projectAgentsDir: TEST_PROJECT_AGENTS_DIR,
     };
 
     const { tool } = createExtension();
@@ -350,10 +370,10 @@ describe("subagent index", () => {
         makeAgent({
           name: "reviewer",
           source: "project",
-          filePath: "C:\\repo\\.pi\\agents\\reviewer.md",
+          filePath: TEST_PROJECT_AGENT_FILE,
         }),
       ],
-      projectAgentsDir: "C:\\repo\\.pi\\agents",
+      projectAgentsDir: TEST_PROJECT_AGENTS_DIR,
     };
 
     const { tool } = createExtension();
@@ -389,7 +409,7 @@ describe("subagent index", () => {
         agent: "worker",
         summary: "Implement feature",
         task: "Ship the feature",
-        cwd: "C:\\repo\\packages\\app",
+        cwd: TEST_APP_CWD,
       },
       undefined,
       undefined,
@@ -400,9 +420,9 @@ describe("subagent index", () => {
     expect(runAgentCalls[0]?.agentName).toBe("worker");
     expect(runAgentCalls[0]?.task).toBe("Ship the feature");
     expect(runAgentCalls[0]?.summary).toBe("Implement feature");
-    expect(runAgentCalls[0]?.taskCwd).toBe("C:\\repo\\packages\\app");
+    expect(runAgentCalls[0]?.taskCwd).toBe(TEST_APP_CWD);
     expect(runAgentCalls[0]?.delegationMode).toBe("spawn");
-    expect(runAgentCalls[0]?.cwd).toBe("C:\\repo");
+    expect(runAgentCalls[0]?.cwd).toBe(TEST_REPO_CWD);
     expect(runAgentCalls[0]?.parentDepth).toBe(0);
     expect(runAgentCalls[0]?.maxDepth).toBe(1);
     expect(runAgentCalls[0]?.inheritedThinking).toBe("high");
@@ -453,7 +473,7 @@ describe("subagent index", () => {
       "call-1",
       {
         tasks: [
-          { agent: "worker", summary: "Write", task: "Write docs", cwd: "C:\\repo\\docs" },
+          { agent: "worker", summary: "Write", task: "Write docs", cwd: TEST_DOCS_CWD },
           { agent: "reviewer", summary: "Review", task: "Review docs" },
         ],
         mode: "fork",
@@ -474,7 +494,7 @@ describe("subagent index", () => {
     expect(runAgentCalls[1]?.forkSessionSnapshotJsonl).toBe(
       '{"type":"session","id":"parent-session"}\n{"type":"message","role":"user","content":[]}\n',
     );
-    expect(runAgentCalls[0]?.taskCwd).toBe("C:\\repo\\docs");
+    expect(runAgentCalls[0]?.taskCwd).toBe(TEST_DOCS_CWD);
     expect(runAgentCalls[1]?.taskCwd).toBeUndefined();
     expect(updates.length).toBeGreaterThan(0);
     expect(result.content[0]?.text).toContain("Parallel: 2/2 succeeded");
