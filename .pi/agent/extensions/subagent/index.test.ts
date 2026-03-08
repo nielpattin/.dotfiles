@@ -131,6 +131,7 @@ function makeResult(overrides: Record<string, any> = {}) {
     agentSource: "user",
     task: "Default task",
     summary: "Default summary",
+    delegationMode: "spawn",
     exitCode: 0,
     messages: [
       {
@@ -319,6 +320,32 @@ describe("subagent index", () => {
     expect(runAgentCalls).toHaveLength(0);
   });
 
+  it("rejects invalid per-task modes in parallel batches", async () => {
+    discoverAgentsResult = {
+      agents: [makeAgent(), makeAgent({ name: "reviewer" })],
+      projectAgentsDir: null,
+    };
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      {
+        tasks: [
+          { agent: "worker", summary: "Write", task: "Do work", mode: "spawn" },
+          { agent: "reviewer", summary: "Review", task: "Review work", mode: "weird" },
+        ],
+      },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('Invalid task mode "weird"');
+    expect(result.content[0]?.text).toContain('parallel task "Review"');
+    expect(runAgentCalls).toHaveLength(0);
+  });
+
   it("blocks fork mode when the parent session snapshot cannot be built", async () => {
     discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
 
@@ -326,6 +353,31 @@ describe("subagent index", () => {
     const result = await tool.execute(
       "call-1",
       { agent: "worker", summary: "Fork", task: "Do work", mode: "fork" },
+      undefined,
+      undefined,
+      makeCtx({ sessionManager: makeSessionManager(false) }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("Cannot use mode=\"fork\": failed to snapshot current session context.");
+    expect(runAgentCalls).toHaveLength(0);
+  });
+
+  it("blocks parallel batches when any task needs fork mode but the parent snapshot cannot be built", async () => {
+    discoverAgentsResult = {
+      agents: [makeAgent(), makeAgent({ name: "reviewer" })],
+      projectAgentsDir: null,
+    };
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      {
+        tasks: [
+          { agent: "worker", summary: "Write", task: "Do work", mode: "spawn" },
+          { agent: "reviewer", summary: "Review", task: "Review work", mode: "fork" },
+        ],
+      },
       undefined,
       undefined,
       makeCtx({ sessionManager: makeSessionManager(false) }),
@@ -398,6 +450,7 @@ describe("subagent index", () => {
         agentSource: "user",
         task: opts.task,
         summary: opts.summary,
+        delegationMode: opts.delegationMode,
         thinking: opts.inheritedThinking,
         messages: [{ role: "assistant", content: [{ type: "text", text: "single done" }] }],
       });
@@ -431,6 +484,65 @@ describe("subagent index", () => {
     expect(result.details.results[0]?.summary).toBe("Implement feature");
   });
 
+  it("uses per-task modes in parallel runs with task-level precedence over the top-level default", async () => {
+    discoverAgentsResult = {
+      agents: [
+        makeAgent(),
+        makeAgent({ name: "reviewer", description: "Reviews work" }),
+        makeAgent({ name: "planner", description: "Plans work" }),
+      ],
+      projectAgentsDir: null,
+    };
+
+    runAgentImpl = async (opts) =>
+      makeResult({
+        agent: opts.agentName,
+        agentSource: "user",
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: `${opts.agentName} complete` }],
+          },
+        ],
+      });
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      {
+        tasks: [
+          { agent: "worker", summary: "Write", task: "Write docs", mode: "spawn" },
+          { agent: "reviewer", summary: "Review", task: "Review docs", mode: "fork" },
+          { agent: "planner", summary: "Plan", task: "Plan docs" },
+        ],
+        mode: "fork",
+      },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(runAgentCalls).toHaveLength(3);
+    expect(runAgentCalls[0]?.delegationMode).toBe("spawn");
+    expect(runAgentCalls[1]?.delegationMode).toBe("fork");
+    expect(runAgentCalls[2]?.delegationMode).toBe("fork");
+    expect(runAgentCalls[0]?.forkSessionSnapshotJsonl).toBeUndefined();
+    expect(runAgentCalls[1]?.forkSessionSnapshotJsonl).toBe(
+      '{"type":"session","id":"parent-session"}\n{"type":"message","role":"user","content":[]}\n',
+    );
+    expect(runAgentCalls[2]?.forkSessionSnapshotJsonl).toBe(
+      '{"type":"session","id":"parent-session"}\n{"type":"message","role":"user","content":[]}\n',
+    );
+    expect(result.details.results.map((taskResult: any) => taskResult.delegationMode)).toEqual([
+      "spawn",
+      "fork",
+      "fork",
+    ]);
+  });
+
   it("executes parallel tasks, forwards fork snapshots, and streams aggregate updates", async () => {
     discoverAgentsResult = {
       agents: [makeAgent(), makeAgent({ name: "reviewer", description: "Reviews work" })],
@@ -446,6 +558,7 @@ describe("subagent index", () => {
               agent: "worker",
               task: opts.task,
               summary: opts.summary,
+              delegationMode: opts.delegationMode,
               exitCode: -1,
               messages: [],
             }),
@@ -458,6 +571,7 @@ describe("subagent index", () => {
         agentSource: "user",
         task: opts.task,
         summary: opts.summary,
+        delegationMode: opts.delegationMode,
         messages: [
           {
             role: "assistant",

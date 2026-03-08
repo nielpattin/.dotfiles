@@ -57,6 +57,12 @@ const TaskItem = Type.Object({
     description:
       "Short UI summary for this delegated run. Displayed in task card headers. Does not change the task sent to the child agent.",
   }),
+  mode: Type.Optional(
+    Type.String({
+      description:
+        "Context mode for this task only. Overrides the top-level mode when present. Supports \"spawn\" and \"fork\".",
+    }),
+  ),
   cwd: Type.Optional(
     Type.String({ description: "Working directory for this agent's process" }),
   ),
@@ -87,7 +93,7 @@ const TaskParams = Type.Object({
     Type.Array(TaskItem, {
       minItems: 1,
       description:
-        "For parallel mode: array of {agent, summary, task} objects. Each task runs in an isolated process concurrently. Do NOT set top-level agent/task when using this.",
+        "For parallel mode: array of {agent, summary, task, mode?} objects. Each task runs in an isolated process concurrently. Do NOT set top-level agent/task when using this.",
     }),
   ),
   mode: Type.Optional(
@@ -134,6 +140,11 @@ function parseDelegationMode(raw: unknown): DelegationMode | null {
     return normalized;
   }
   return null;
+}
+
+function parseTaskDelegationMode(raw: unknown): DelegationMode | null | undefined {
+  if (raw === undefined) return undefined;
+  return parseDelegationMode(raw);
 }
 
 function hasNonBlankText(value: unknown): value is string {
@@ -337,6 +348,7 @@ Each task runs in an **isolated process**.
 Context behavior is controlled by optional 'mode':
 - 'spawn' (default): child receives only the provided task prompt. Best for isolated, reproducible tasks with lower token/cost and less context leakage.
 - 'fork': child receives a forked snapshot of current session context plus the task prompt. Best for follow-up tasks that rely on prior context; usually higher token/cost and may include sensitive context.
+- In parallel mode, \`tasks[i].mode\` can override the top-level \`mode\` for that task only.
 
 **Single mode** — delegate one task:
 \`\`\`json
@@ -345,7 +357,7 @@ Context behavior is controlled by optional 'mode':
 
 **Parallel mode** — run multiple tasks concurrently (do NOT also set agent/task):
 \`\`\`json
-{ "tasks": [{ "agent": "agent-name", "summary": "Short task summary", "task": "..." }, { "agent": "other-agent", "summary": "Short task summary", "task": "..." }], "mode": "fork" }
+{ "tasks": [{ "agent": "agent-name", "summary": "Short task summary", "task": "...", "mode": "spawn" }, { "agent": "other-agent", "summary": "Short task summary", "task": "..." }], "mode": "fork" }
 \`\`\`
 
 Use single mode for one task, parallel mode when tasks are independent and can run simultaneously.
@@ -370,9 +382,10 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         "                             Best for isolated/reproducible work; lower token/cost and less context leakage.",
         "  mode: \"fork\"            -> child gets current session context + your task prompt.",
         "                             Best for follow-up work that depends on prior context; higher token/cost and may include sensitive context.",
+        "  tasks[i].mode             -> overrides top-level mode for that parallel task only.",
         "",
         'Example single:   { agent: "writer", summary: "README rewrite", task: "Rewrite README.md", mode: "spawn" }',
-        'Example parallel: { tasks: [{ agent: "writer", summary: "README rewrite", task: "..." }, { agent: "tester", summary: "Validation pass", task: "..." }], mode: "fork" }',
+        'Example parallel: { tasks: [{ agent: "writer", summary: "README rewrite", task: "...", mode: "spawn" }, { agent: "tester", summary: "Validation pass", task: "..." }], mode: "fork" }',
       ].join("\n"),
       parameters: TaskParams,
 
@@ -380,8 +393,8 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         const discovery = discoverAgents(ctx.cwd, "both");
         const { agents } = discovery;
 
-        const delegationMode = parseDelegationMode(params.mode);
-        if (!delegationMode) {
+        const defaultDelegationMode = parseDelegationMode(params.mode);
+        if (!defaultDelegationMode) {
           const invalidModeDetails = makeDetailsFactory(
             discovery.projectAgentsDir,
             DEFAULT_DELEGATION_MODE,
@@ -400,26 +413,8 @@ Use single mode for one task, parallel mode when tasks are independent and can r
 
         const makeDetails = makeDetailsFactory(
           discovery.projectAgentsDir,
-          delegationMode,
+          defaultDelegationMode,
         );
-
-        let forkSessionSnapshotJsonl: string | undefined;
-        if (delegationMode === "fork") {
-          forkSessionSnapshotJsonl =
-            buildForkSessionSnapshotJsonl(ctx.sessionManager) ?? undefined;
-          if (!forkSessionSnapshotJsonl) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: "Cannot use mode=\"fork\": failed to snapshot current session context.",
-                },
-              ],
-              details: makeDetails("single")([]),
-              isError: true,
-            };
-          }
-        }
 
         const hasParallelTasks = Array.isArray(params.tasks)
           && params.tasks.length > 0
@@ -427,7 +422,8 @@ Use single mode for one task, parallel mode when tasks are independent and can r
             hasNonBlankText(task.agent)
             && hasNonBlankText(task.summary)
             && hasNonBlankText(task.task)
-            && (task.cwd === undefined || typeof task.cwd === "string"),
+            && (task.cwd === undefined || typeof task.cwd === "string")
+            && (task.mode === undefined || typeof task.mode === "string"),
           );
         const hasAnySingleShapeField =
           params.agent !== undefined
@@ -477,10 +473,59 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         }
 
         const isParallel = hasParallelTasks;
-        const parallelTasks = hasParallelTasks ? params.tasks! : undefined;
+        const singleDelegationMode = defaultDelegationMode;
+        const parallelTasks = hasParallelTasks
+          ? params.tasks!.map((task) => {
+            const taskDelegationMode = parseTaskDelegationMode(task.mode);
+            return {
+              agent: task.agent,
+              task: task.task,
+              summary: task.summary,
+              cwd: task.cwd,
+              rawMode: task.mode,
+              delegationMode: taskDelegationMode ?? defaultDelegationMode,
+              hasInvalidMode: taskDelegationMode === null,
+            };
+          })
+          : undefined;
+        const invalidTaskMode = parallelTasks?.find((task) => task.hasInvalidMode);
+        if (invalidTaskMode) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Invalid task mode \"${String(invalidTaskMode.rawMode)}\" for parallel task \"${invalidTaskMode.summary}\". Expected \"spawn\" or \"fork\".`,
+              },
+            ],
+            details: makeDetails("parallel")([]),
+            isError: true,
+          };
+        }
+
         const singleAgent = hasSingleTask ? params.agent! : undefined;
         const singleTask = hasSingleTask ? params.task! : undefined;
         const singleSummary = hasSingleTask ? params.summary! : undefined;
+        const needsForkSnapshot = isParallel
+          ? parallelTasks!.some((task) => task.delegationMode === "fork")
+          : singleDelegationMode === "fork";
+
+        let forkSessionSnapshotJsonl: string | undefined;
+        if (needsForkSnapshot) {
+          forkSessionSnapshotJsonl =
+            buildForkSessionSnapshotJsonl(ctx.sessionManager) ?? undefined;
+          if (!forkSessionSnapshotJsonl) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "Cannot use mode=\"fork\": failed to snapshot current session context.",
+                },
+              ],
+              details: makeDetails(isParallel ? "parallel" : "single")([]),
+              isError: true,
+            };
+          }
+        }
 
         // Security: guard project-local agents before running
         const requested = new Set<string>();
@@ -535,7 +580,6 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         if (isParallel) {
           return executeParallel(
             parallelTasks!,
-            delegationMode,
             inheritedThinking,
             forkSessionSnapshotJsonl,
             agents,
@@ -552,7 +596,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
           singleTask!,
           singleSummary!,
           params.cwd,
-          delegationMode,
+          singleDelegationMode,
           inheritedThinking,
           forkSessionSnapshotJsonl,
           agents,
@@ -594,6 +638,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       agentSource: agent?.source ?? "unknown",
       task,
       summary,
+      delegationMode,
       exitCode: -1,
       messages: [],
       stderr: "",
@@ -693,8 +738,8 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       task: string;
       summary: string;
       cwd?: string;
+      delegationMode: DelegationMode;
     }>,
-    delegationMode: DelegationMode,
     inheritedThinking: string,
     forkSessionSnapshotJsonl: string | undefined,
     agents: AgentConfig[],
@@ -724,6 +769,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         agentSource: agent?.source ?? "unknown",
         task: t.task,
         summary: t.summary,
+        delegationMode: t.delegationMode,
         exitCode: -1,
         messages: [],
         stderr: "",
@@ -772,9 +818,10 @@ Use single mode for one task, parallel mode when tasks are independent and can r
             task: t.task,
             summary: t.summary,
             taskCwd: t.cwd,
-            delegationMode,
+            delegationMode: t.delegationMode,
             inheritedThinking,
-            forkSessionSnapshotJsonl,
+            forkSessionSnapshotJsonl:
+              t.delegationMode === "fork" ? forkSessionSnapshotJsonl : undefined,
             parentDepth: currentDepth,
             maxDepth,
             signal,

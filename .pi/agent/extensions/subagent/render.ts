@@ -95,6 +95,13 @@ function normalizeDelegationMode(raw: unknown): DelegationMode {
 	return raw === "fork" ? "fork" : DEFAULT_DELEGATION_MODE;
 }
 
+function getResultDelegationMode(
+	r: Pick<SingleResult, "delegationMode">,
+	fallback: DelegationMode,
+): DelegationMode {
+	return normalizeDelegationMode(r.delegationMode ?? fallback);
+}
+
 function formatSkillList(items: string[]): string {
 	return items.length > 0 ? items.join(", ") : "(none)";
 }
@@ -420,9 +427,10 @@ function cardTaskLine(_r: SingleResult, _theme: RenderTheme): string | null {
 
 function cardSessionLine(
 	r: SingleResult,
-	delegationMode: DelegationMode,
+	fallbackDelegationMode: DelegationMode,
 	theme: RenderTheme,
 ): string {
+	const delegationMode = getResultDelegationMode(r, fallbackDelegationMode);
 	const session = sessionIdentity(r);
 	if (session) {
 		const parts = [session, delegationMode];
@@ -486,7 +494,7 @@ function renderCard(
 	r: SingleResult,
 	index: number,
 	width: number,
-	delegationMode: DelegationMode,
+	fallbackDelegationMode: DelegationMode,
 	theme: RenderTheme,
 ): string[] {
 	const accent = getCardAccent(index, r);
@@ -511,7 +519,7 @@ function renderCard(
 	const lines = [row(joinLeftRight(title, status, contentWidth))];
 	if (taskLine) lines.push(row(taskLine));
 	lines.push(
-		row(cardSessionLine(r, delegationMode, theme)),
+		row(cardSessionLine(r, fallbackDelegationMode, theme)),
 		row(cardActivityLine(r, theme)),
 		row(cardFooterLine(r, theme, contentWidth)),
 	);
@@ -581,17 +589,25 @@ class SummaryCardsComponent {
 // ---------------------------------------------------------------------------
 
 export function renderCall(args: Record<string, any>, theme: RenderTheme): Text {
-	const delegationMode = normalizeDelegationMode(args.mode);
-	const modeBadge = theme.fg("muted", ` [${delegationMode}]`);
+	const defaultDelegationMode = normalizeDelegationMode(args.mode);
 	const prefix = theme.fg("toolTitle", theme.bold("Task")) + theme.fg("muted", " • ");
 
 	if (args.tasks && args.tasks.length > 0) {
+		const taskModes = args.tasks.map((task: { mode?: unknown }) =>
+			normalizeDelegationMode(task?.mode ?? defaultDelegationMode),
+		);
+		const uniqueModes = new Set(taskModes);
+		const modeLabel = uniqueModes.size > 1
+			? "mixed"
+			: taskModes[0] ?? defaultDelegationMode;
+		const modeBadge = theme.fg("muted", ` [${modeLabel}]`);
 		const names = args.tasks.slice(0, 4).map((task: { agent: string }) => task.agent).join(", ");
 		const overflow = args.tasks.length > 4 ? ", ..." : "";
 		const summary = `${args.tasks.length} task${args.tasks.length === 1 ? "" : "s"}: ${names}${overflow}`;
 		return new Text(prefix + theme.fg("accent", summary) + modeBadge, 0, 0);
 	}
 
+	const modeBadge = theme.fg("muted", ` [${defaultDelegationMode}]`);
 	const agentName = typeof args.agent === "string" ? args.agent : "(invalid task call)";
 	const text = prefix + theme.fg("accent", `${agentName}`) + modeBadge;
 	return new Text(text, 0, 0);

@@ -499,6 +499,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       agentSource: "unknown",
       task,
       summary,
+      delegationMode,
       exitCode: 1,
       messages: [],
       stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
@@ -517,6 +518,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       agentSource: agent.source,
       task,
       summary,
+      delegationMode,
       exitCode: 1,
       messages: [],
       stderr:
@@ -537,6 +539,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     agentSource: agent.source,
     task,
     summary,
+    delegationMode,
     exitCode: -1,
     messages: [],
     stderr: "",

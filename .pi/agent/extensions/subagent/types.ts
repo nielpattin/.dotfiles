@@ -45,6 +45,7 @@ export interface SingleResult {
 	agentSource: "user" | "project" | "unknown";
 	task: string;
 	summary: string;
+	delegationMode?: DelegationMode;
 	exitCode: number;
 	messages: Message[];
 	stderr: string;

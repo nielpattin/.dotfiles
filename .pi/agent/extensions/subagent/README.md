@@ -53,6 +53,7 @@ pi --task-max-depth 0
 
 - `spawn` (default) — Child receives only the task string (`Task: ...`). Best for isolated, reproducible work; typically lower token/cost and less context leakage.
 - `fork` — Child receives a forked snapshot of the current session context **plus** the task string. Best for follow-up work that depends on prior context; typically higher token/cost and may include sensitive context.
+- In parallel mode, `tasks[i].mode` can override the top-level `mode` for that task only.
 
 Quick rule of thumb:
 
@@ -69,7 +70,23 @@ Examples:
 { "agent": "reviewer", "task": "Double-check this migration", "summary": "Migration review", "mode": "fork" }
 ```
 
+```json
+{
+  "tasks": [
+    { "agent": "writer", "task": "Draft the changelog", "summary": "Changelog", "mode": "spawn" },
+    { "agent": "reviewer", "task": "Review the release notes", "summary": "Release review" }
+  ],
+  "mode": "fork"
+}
+```
+
 If omitted, mode defaults to `spawn`.
+
+Precedence rule for parallel batches:
+
+- `tasks[i].mode` wins when present
+- otherwise the top-level `mode` is used
+- if neither is set, the task runs in `spawn`
 
 `summary` is required for each delegated task. It controls the task card header (`<AgentName> — <summary>`) and does not change the delegated `task` prompt.
 
@@ -226,7 +243,8 @@ Note: `fork` copies session context, not transient runtime-only prompt mutations
 When running multiple agents in parallel:
 
 - All task agents start simultaneously (up to 4 concurrent)
-- The top-level `mode` applies to all tasks in that call
+- Each task uses `tasks[i].mode` when present; otherwise it falls back to the top-level `mode`
+- Mixed `spawn` + `fork` batches share one parent snapshot build, and only `fork` tasks receive it
 - Main agent receives a combined result after all finish:
 
 ```
@@ -240,7 +258,7 @@ Parallel: 3/3 succeeded
 ## Features
 
 - **Auto-Discovery** — Agents are discovered on session start for UI visibility and refreshed before prompt injection/execution to stay aligned with the current filesystem state.
-- **Context Mode Switch** — `spawn` (fresh context) and `fork` (session snapshot + task) per call.
+- **Context Mode Switch** — `spawn` (fresh context) and `fork` (session snapshot + task), with per-task overrides in parallel batches.
 - **Depth Guard** — Delegation depth is limited by default to prevent recursive task spawning.
 - **Streaming Updates** — Watch task progress in real-time as tool calls and outputs stream in.
 - **Rich TUI Rendering** — Collapsed/expanded views with usage stats, tool call previews, and markdown output.
@@ -276,10 +294,13 @@ Current tests:
 - `mixed invocation rejection` — rejects calls that provide both single-task fields and `tasks[]`
 - `incomplete single-task rejection` — requires `agent`, `summary`, and `task` together
 - `invalid parallel task rejection` — rejects parallel items missing required fields
+- `invalid per-task mode rejection` — rejects parallel items whose `mode` is not `spawn` or `fork`
 - `fork snapshot failure` — blocks `fork` mode when session snapshot creation fails
+- `parallel fork snapshot failure` — blocks mixed/defaulted parallel batches when any task needs fork context but snapshot creation fails
 - `project agent decline` — cancels execution when the user rejects project-local agents
 - `project agent non-UI block` — blocks project-local agents in non-UI mode unless confirmation is disabled
 - `single-task execution wiring` — passes the resolved runner options and returns the final child output
+- `parallel per-task mode precedence` — lets task-level mode override the top-level default and only forwards fork snapshots to fork tasks
 - `parallel execution wiring` — runs tasks concurrently, forwards fork snapshots, and aggregates results
 - `parallel task cap` — rejects batches above the hard max of 8 tasks
 
@@ -288,6 +309,7 @@ Current tests:
 - `collapsed single-card states` — shows the right running, failed, and completed card status lines
 - `expanded single details` — renders task, skills, tool trace, and final output sections
 - `collapsed parallel summaries` — limits visible cards and shows the hidden-task count
+- `mixed parallel mode labels` — shows each task's actual `spawn` / `fork` mode in the summary cards
 
 ### `runner.test.ts`
 

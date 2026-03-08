@@ -85,6 +85,7 @@ function makeResult(overrides: Record<string, any> = {}) {
     agentSource: "user",
     task: "Default task",
     summary: "Default summary",
+    delegationMode: "spawn",
     exitCode: 0,
     messages: [
       {
@@ -260,5 +261,27 @@ describe("subagent render", () => {
     expect(lines).toContain("Writer — Four");
     expect(lines).toContain("1 more task");
     expect(lines).not.toContain("Tester — Five");
+  });
+
+  it("renders per-task delegation modes for mixed parallel batches", () => {
+    const theme = makeTheme();
+    const rendered = renderResult(
+      makeToolResult(
+        makeDetails(
+          [
+            makeResult({ agent: "worker", summary: "One", delegationMode: "spawn" }),
+            makeResult({ agent: "reviewer", summary: "Two", delegationMode: "fork" }),
+          ],
+          "parallel",
+        ),
+      ),
+      false,
+      false,
+      theme as any,
+    );
+
+    const lines = renderSummaryLines(rendered).join("\n");
+    expect(lines).toContain("Source: spawn");
+    expect(lines).toContain("Source: fork");
   });
 });
