@@ -1,0 +1,509 @@
+import { beforeEach, describe, expect, it, mock } from "bun:test";
+
+type DiscoveryResult = {
+  agents: any[];
+  projectAgentsDir: string | null;
+};
+
+type RunAgentCall = Record<string, any>;
+type MapConcurrentCall = {
+  items: any[];
+  concurrency: number;
+};
+
+const discoverAgentsCalls: Array<{ cwd: string; scope: string }> = [];
+const runAgentCalls: RunAgentCall[] = [];
+const mapConcurrentCalls: MapConcurrentCall[] = [];
+
+let discoverAgentsResult: DiscoveryResult = { agents: [], projectAgentsDir: null };
+let runAgentImpl: (opts: any) => Promise<any> = async () => {
+  throw new Error("runAgentImpl not configured for test");
+};
+let mapConcurrentImpl: (
+  items: any[],
+  concurrency: number,
+  fn: (item: any, index: number) => Promise<any>,
+) => Promise<any[]> = async (items, _concurrency, fn) => {
+  const results: any[] = [];
+  for (const [index, item] of items.entries()) {
+    results.push(await fn(item, index));
+  }
+  return results;
+};
+
+mock.module("./agents.js", () => ({
+  discoverAgents(cwd: string, scope: string) {
+    discoverAgentsCalls.push({ cwd, scope });
+    return discoverAgentsResult;
+  },
+}));
+
+mock.module("./runner.js", () => ({
+  async runAgent(opts: any) {
+    runAgentCalls.push(opts);
+    return runAgentImpl(opts);
+  },
+  async mapConcurrent(
+    items: any[],
+    concurrency: number,
+    fn: (item: any, index: number) => Promise<any>,
+  ) {
+    mapConcurrentCalls.push({ items, concurrency });
+    return mapConcurrentImpl(items, concurrency, fn);
+  },
+}));
+
+mock.module("./render.js", () => ({
+  renderCall() {
+    return null;
+  },
+  renderResult() {
+    return null;
+  },
+}));
+
+const { default: subagentExtension } = await import("./index.ts");
+const { emptyUsage } = await import("./types.ts");
+
+class MockPi {
+  tool: any;
+  private readonly handlers = new Map<string, Function[]>();
+
+  constructor(
+    private readonly thinkingLevel = "medium",
+    private readonly flags: Record<string, string | undefined> = {},
+  ) {}
+
+  registerFlag(_name: string, _config: unknown): void {}
+
+  getFlag(name: string): string | undefined {
+    return this.flags[name];
+  }
+
+  getThinkingLevel(): string {
+    return this.thinkingLevel;
+  }
+
+  on(eventName: string, handler: Function): void {
+    const handlers = this.handlers.get(eventName) ?? [];
+    handlers.push(handler);
+    this.handlers.set(eventName, handlers);
+  }
+
+  registerTool(tool: any): void {
+    this.tool = tool;
+  }
+
+  async emit(eventName: string, event: any, ctx?: any): Promise<any> {
+    const handlers = this.handlers.get(eventName) ?? [];
+    let result: any;
+    for (const handler of handlers) {
+      result = await handler(event, ctx);
+    }
+    return result;
+  }
+}
+
+function makeAgent(overrides: Record<string, any> = {}) {
+  return {
+    name: "worker",
+    description: "General worker agent",
+    source: "user",
+    systemPrompt: "",
+    filePath: "C:\\Users\\niel\\.pi\\agent\\agents\\worker.md",
+    ...overrides,
+  };
+}
+
+function makeResult(overrides: Record<string, any> = {}) {
+  const now = Date.now();
+  return {
+    agent: "worker",
+    agentSource: "user",
+    task: "Default task",
+    summary: "Default summary",
+    exitCode: 0,
+    messages: [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+      },
+    ],
+    stderr: "",
+    usage: emptyUsage(),
+    startedAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+function makeSessionManager(hasSnapshot = true) {
+  return {
+    getHeader: () => (hasSnapshot ? { type: "session", id: "parent-session" } : null),
+    getBranch: () => (hasSnapshot ? [{ type: "message", role: "user", content: [] }] : []),
+  };
+}
+
+function makeCtx(overrides: Record<string, any> = {}) {
+  const confirm = mock(async () => true);
+  const notify = mock(() => {});
+  return {
+    cwd: "C:\\repo",
+    hasUI: false,
+    sessionManager: makeSessionManager(true),
+    ui: {
+      confirm,
+      notify,
+    },
+    ...overrides,
+  };
+}
+
+function createExtension(options?: {
+  thinkingLevel?: string;
+  flags?: Record<string, string | undefined>;
+}) {
+  const pi = new MockPi(options?.thinkingLevel, options?.flags);
+  subagentExtension(pi as any);
+  expect(pi.tool).toBeDefined();
+  return { pi, tool: pi.tool };
+}
+
+beforeEach(() => {
+  discoverAgentsCalls.length = 0;
+  runAgentCalls.length = 0;
+  mapConcurrentCalls.length = 0;
+  discoverAgentsResult = { agents: [], projectAgentsDir: null };
+  runAgentImpl = async () => {
+    throw new Error("runAgentImpl not configured for test");
+  };
+  mapConcurrentImpl = async (items, _concurrency, fn) => {
+    const results: any[] = [];
+    for (const [index, item] of items.entries()) {
+      results.push(await fn(item, index));
+    }
+    return results;
+  };
+  delete process.env.PI_TASK_DEPTH;
+  delete process.env.PI_TASK_MAX_DEPTH;
+});
+
+describe("subagent index", () => {
+  it("discovers agents on session start and injects them into the system prompt", async () => {
+    discoverAgentsResult = {
+      agents: [
+        makeAgent({ name: "worker", description: "Handles implementation work" }),
+        makeAgent({
+          name: "reviewer",
+          description: "Reviews code changes",
+          source: "project",
+          filePath: "C:\\repo\\.pi\\agents\\reviewer.md",
+        }),
+      ],
+      projectAgentsDir: "C:\\repo\\.pi\\agents",
+    };
+
+    const { pi } = createExtension();
+    const ctx = makeCtx({ hasUI: true });
+
+    await pi.emit("session_start", {}, ctx);
+    const injected = await pi.emit("before_agent_start", { systemPrompt: "Base prompt" });
+
+    expect(discoverAgentsCalls).toEqual([{ cwd: "C:\\repo", scope: "both" }]);
+    expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
+    expect(injected.systemPrompt).toContain("## Available Task Agents");
+    expect(injected.systemPrompt).toContain("**worker**: Handles implementation work");
+    expect(injected.systemPrompt).toContain("**reviewer**: Reviews code changes");
+    expect(injected.systemPrompt).toContain("'spawn' (default): child receives only the provided task prompt");
+  });
+
+  it("rejects an invalid mode before execution", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      { agent: "worker", summary: "Mode check", task: "Do work", mode: "weird" },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('Invalid mode "weird"');
+    expect(runAgentCalls).toHaveLength(0);
+  });
+
+  it("rejects mixed single and parallel invocation shapes", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      {
+        agent: "worker",
+        summary: "Single",
+        task: "Do work",
+        tasks: [{ agent: "worker", summary: "Parallel", task: "Do more work" }],
+      },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("Provide exactly one invocation shape");
+    expect(runAgentCalls).toHaveLength(0);
+    expect(mapConcurrentCalls).toHaveLength(0);
+  });
+
+  it("rejects incomplete single-task parameters", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      { agent: "worker", task: "Missing summary" },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("Single mode requires agent, summary, and task");
+    expect(runAgentCalls).toHaveLength(0);
+  });
+
+  it("rejects invalid parallel task items", async () => {
+    discoverAgentsResult = {
+      agents: [makeAgent(), makeAgent({ name: "reviewer" })],
+      projectAgentsDir: null,
+    };
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      {
+        tasks: [
+          { agent: "worker", summary: "Valid", task: "Do work" },
+          { agent: "reviewer", summary: "   ", task: "Review work" },
+        ],
+      },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("Each task item requires agent, summary, and task");
+    expect(runAgentCalls).toHaveLength(0);
+  });
+
+  it("blocks fork mode when the parent session snapshot cannot be built", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      { agent: "worker", summary: "Fork", task: "Do work", mode: "fork" },
+      undefined,
+      undefined,
+      makeCtx({ sessionManager: makeSessionManager(false) }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("Cannot use mode=\"fork\": failed to snapshot current session context.");
+    expect(runAgentCalls).toHaveLength(0);
+  });
+
+  it("cancels project-local agents when the user declines confirmation", async () => {
+    discoverAgentsResult = {
+      agents: [
+        makeAgent({
+          name: "reviewer",
+          source: "project",
+          filePath: "C:\\repo\\.pi\\agents\\reviewer.md",
+        }),
+      ],
+      projectAgentsDir: "C:\\repo\\.pi\\agents",
+    };
+
+    const { tool } = createExtension();
+    const confirm = mock(async () => false);
+    const result = await tool.execute(
+      "call-1",
+      { agent: "reviewer", summary: "Review", task: "Check this repo" },
+      undefined,
+      undefined,
+      makeCtx({ hasUI: true, ui: { confirm, notify: mock(() => {}) } }),
+    );
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(result.content[0]?.text).toContain("Canceled: project-local agents not approved.");
+    expect(result.isError).toBeUndefined();
+    expect(runAgentCalls).toHaveLength(0);
+  });
+
+  it("blocks project-local agents in non-UI mode unless confirmation is disabled", async () => {
+    discoverAgentsResult = {
+      agents: [
+        makeAgent({
+          name: "reviewer",
+          source: "project",
+          filePath: "C:\\repo\\.pi\\agents\\reviewer.md",
+        }),
+      ],
+      projectAgentsDir: "C:\\repo\\.pi\\agents",
+    };
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      { agent: "reviewer", summary: "Review", task: "Check this repo" },
+      undefined,
+      undefined,
+      makeCtx({ hasUI: false }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("Blocked: project-local agent confirmation is required in non-UI mode.");
+    expect(runAgentCalls).toHaveLength(0);
+  });
+
+  it("executes a single task and passes the resolved runner options", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+    runAgentImpl = async (opts) =>
+      makeResult({
+        agent: opts.agentName,
+        agentSource: "user",
+        task: opts.task,
+        summary: opts.summary,
+        thinking: opts.inheritedThinking,
+        messages: [{ role: "assistant", content: [{ type: "text", text: "single done" }] }],
+      });
+
+    const { tool } = createExtension({ thinkingLevel: "high" });
+    const result = await tool.execute(
+      "call-1",
+      {
+        agent: "worker",
+        summary: "Implement feature",
+        task: "Ship the feature",
+        cwd: "C:\\repo\\packages\\app",
+      },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(runAgentCalls).toHaveLength(1);
+    expect(runAgentCalls[0]?.agentName).toBe("worker");
+    expect(runAgentCalls[0]?.task).toBe("Ship the feature");
+    expect(runAgentCalls[0]?.summary).toBe("Implement feature");
+    expect(runAgentCalls[0]?.taskCwd).toBe("C:\\repo\\packages\\app");
+    expect(runAgentCalls[0]?.delegationMode).toBe("spawn");
+    expect(runAgentCalls[0]?.cwd).toBe("C:\\repo");
+    expect(runAgentCalls[0]?.parentDepth).toBe(0);
+    expect(runAgentCalls[0]?.maxDepth).toBe(1);
+    expect(runAgentCalls[0]?.inheritedThinking).toBe("high");
+    expect(result.content[0]?.text).toBe("single done");
+    expect(result.details.mode).toBe("single");
+    expect(result.details.results[0]?.summary).toBe("Implement feature");
+  });
+
+  it("executes parallel tasks, forwards fork snapshots, and streams aggregate updates", async () => {
+    discoverAgentsResult = {
+      agents: [makeAgent(), makeAgent({ name: "reviewer", description: "Reviews work" })],
+      projectAgentsDir: null,
+    };
+
+    runAgentImpl = async (opts) => {
+      if (opts.agentName === "worker") {
+        opts.onUpdate?.({
+          content: [{ type: "text", text: "(running...)" }],
+          details: opts.makeDetails([
+            makeResult({
+              agent: "worker",
+              task: opts.task,
+              summary: opts.summary,
+              exitCode: -1,
+              messages: [],
+            }),
+          ]),
+        });
+      }
+
+      return makeResult({
+        agent: opts.agentName,
+        agentSource: "user",
+        task: opts.task,
+        summary: opts.summary,
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: `${opts.agentName} complete` }],
+          },
+        ],
+      });
+    };
+
+    const updates: any[] = [];
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      {
+        tasks: [
+          { agent: "worker", summary: "Write", task: "Write docs", cwd: "C:\\repo\\docs" },
+          { agent: "reviewer", summary: "Review", task: "Review docs" },
+        ],
+        mode: "fork",
+      },
+      undefined,
+      (partial: any) => updates.push(partial),
+      makeCtx(),
+    );
+
+    expect(mapConcurrentCalls).toHaveLength(1);
+    expect(mapConcurrentCalls[0]?.concurrency).toBe(4);
+    expect(runAgentCalls).toHaveLength(2);
+    expect(runAgentCalls[0]?.delegationMode).toBe("fork");
+    expect(runAgentCalls[1]?.delegationMode).toBe("fork");
+    expect(runAgentCalls[0]?.forkSessionSnapshotJsonl).toBe(
+      '{"type":"session","id":"parent-session"}\n{"type":"message","role":"user","content":[]}\n',
+    );
+    expect(runAgentCalls[1]?.forkSessionSnapshotJsonl).toBe(
+      '{"type":"session","id":"parent-session"}\n{"type":"message","role":"user","content":[]}\n',
+    );
+    expect(runAgentCalls[0]?.taskCwd).toBe("C:\\repo\\docs");
+    expect(runAgentCalls[1]?.taskCwd).toBeUndefined();
+    expect(updates.length).toBeGreaterThan(0);
+    expect(result.content[0]?.text).toContain("Parallel: 2/2 succeeded");
+    expect(result.content[0]?.text).toContain("[worker] completed: worker complete");
+    expect(result.content[0]?.text).toContain("[reviewer] completed: reviewer complete");
+    expect(result.details.mode).toBe("parallel");
+    expect(result.details.results).toHaveLength(2);
+  });
+
+  it("rejects parallel batches above the hard task limit", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+
+    const tasks = Array.from({ length: 9 }, (_, index) => ({
+      agent: "worker",
+      summary: `Task ${index + 1}`,
+      task: `Do task ${index + 1}`,
+    }));
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-1",
+      { tasks },
+      undefined,
+      undefined,
+      makeCtx(),
+    );
+
+    expect(result.content[0]?.text).toContain("Too many parallel tasks (9). Max is 8.");
+    expect(runAgentCalls).toHaveLength(0);
+    expect(mapConcurrentCalls).toHaveLength(0);
+  });
+});

@@ -2,13 +2,10 @@
 
 ## High priority
 
-- [ ] Add automated tests
-  - Added initial Bun coverage in `runner.test.ts` for normal completion and abort handling.
-  - Still need broader coverage for agent discovery.
-  - Still need tool input validation coverage.
-  - Still need single and parallel task execution path coverage beyond runner lifecycle.
-  - Still need `spawn` vs `fork` behavior coverage.
-  - Still need rendering/status transition coverage where practical.
+- [ ] Expand automated tests further
+  - Added `index.test.ts` coverage for agent discovery, tool input validation, project-agent confirmation, single-task execution, parallel execution, and `spawn` vs `fork` entry behavior.
+  - `runner.test.ts` already covers runner lifecycle, streamed events, skill loading, temp-file cleanup, abort handling, and concurrency helpers.
+  - Remaining gap: rendering/status transition coverage where practical.
 
 ## Medium priority
 
@@ -27,9 +24,9 @@
 
 ## Documentation / polish
 
-- [ ] Document `skills` in agent frontmatter
-  - README should match implementation support.
-  - Add an example showing how `skills` are declared and loaded.
+- [x] Document `skills` in agent frontmatter
+  - README now matches implementation support.
+  - Added examples showing how `skills` are declared and loaded.
   - Evidence: `agents.ts`, `runner.ts`, `README.md`
 
 ## Nice-to-have follow-ups

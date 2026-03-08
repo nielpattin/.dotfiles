@@ -97,7 +97,7 @@ mock.module("@mariozechner/pi-coding-agent", () => ({
   },
 }));
 
-const { mapConcurrent, runAgent } = await import("./runner.ts");
+const { mapConcurrent, runAgent } = await import("./runner.ts?runner-test");
 
 const testRootDir = fs.mkdtempSync(
   path.join(os.tmpdir(), "pi-subagent-runner-test-"),
