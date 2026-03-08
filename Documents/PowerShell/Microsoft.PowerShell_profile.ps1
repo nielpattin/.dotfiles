@@ -42,6 +42,28 @@ function dot-ui {
     }
 }
 
+# Wrapper for `pi` that ensures the GIT_DIR and WORK_TREE are set correctly to work with .dotfiles, then restores them after running.
+# This allow pi aware of the bare repo .dotfiles setup.
+# For normal usage just pi on others folder
+function dot-pi {
+    $oldGitDir = $env:GIT_DIR
+    $oldWorkTree = $env:GIT_WORK_TREE
+    $oldLocks = $env:GIT_OPTIONAL_LOCKS
+
+    try {
+        $env:GIT_DIR = "$HOME\.dotfiles"
+        $env:GIT_WORK_TREE = "$HOME"
+        $env:GIT_OPTIONAL_LOCKS = "0"
+        Set-Location $HOME
+        pi
+    }
+    finally {
+        $env:GIT_DIR = $oldGitDir
+        $env:GIT_WORK_TREE = $oldWorkTree
+        $env:GIT_OPTIONAL_LOCKS = $oldLocks
+    }
+}
+
 function Get-PubIP { (Invoke-WebRequest http://ifconfig.me/ip).Content }
 
 function admin {

@@ -1,6 +1,15 @@
+# dot-ai usage examples:
+#   dot-ai "only commit nvim changes"
+#   dot-ai "only commit nvim changes" -- --model anthropic/claude-sonnet-4 --thinking high
+#   dot-ai -- --provider openai-codex --model gpt-5.3-codex
+#
+# Rules:
+#   - args before `--` become extra instructions added to the prompt
+#   - args after `--` are passed directly to `pi`
+
 param(
     [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$ExtraInstructions
+    [string[]]$RawArgs
 )
 
 if (-not (Get-Command pi -ErrorAction SilentlyContinue)) {
@@ -8,28 +17,49 @@ if (-not (Get-Command pi -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
+if ($null -eq $RawArgs) {
+    $RawArgs = @()
+}
+
+$Instructions = @()
+$PiArgs = @()
+$separatorIndex = [System.Array]::IndexOf($RawArgs, '--')
+
+if ($separatorIndex -ge 0) {
+    if ($separatorIndex -gt 0) {
+        $Instructions = $RawArgs[0..($separatorIndex - 1)]
+    }
+
+    if ($separatorIndex -lt ($RawArgs.Count - 1)) {
+        $PiArgs = $RawArgs[($separatorIndex + 1)..($RawArgs.Count - 1)]
+    }
+}
+else {
+    $Instructions = $RawArgs
+}
+
 $prompt = @"
 You are committing changes for a bare dotfiles repository.
 
 Repository setup:
-- GIT_DIR: $HOME/.dotfiles
-- GIT_WORK_TREE: $HOME
-- Treat: `--git-dir="$HOME/.dotfiles" --work-tree="$HOME"` as the prefix for all git commands.
-- Use -f when adding files to staged.
-- Use `git <prefix> ls-files --others --exclude-standard` to show untracked files.
+- Working directory: $HOME
+- GIT_DIR and GIT_WORK_TREE are already set in the environment for the bare repo.
+- Use normal git commands. Do NOT use `--git-dir`, `--work-tree`, or any placeholder prefix.
+- Use -f when adding files because the repo ignores everything by default.
+- Use `git ls-files --others --exclude-standard` to show untracked files.
 
-Do the following workflow exactly. DO NOT run cd. Always use the git prefix.
+Do the following workflow exactly.
 
 ```bash
 # 1) Inspect current state
-git <prefix> status --porcelain
-git <prefix> ls-files --others --exclude-standard
+git status --porcelain
+git ls-files --others --exclude-standard
 
 # 2) If there are no staged changes, report "Nothing to commit" and stop without error
-git <prefix> --no-pager diff --cached --name-status
+git --no-pager diff --cached --name-status
 
 # 3) Analyze staged changes file-by-file before staging any new commit chunk
-git <prefix> --no-pager diff --cached <file>
+git --no-pager diff --cached <file>
 
 # 4) MANDATORY split plan
 #    - Build a commit plan first.
@@ -37,21 +67,21 @@ git <prefix> --no-pager diff --cached <file>
 #    - NEVER commit everything in one commit when multiple logical groups exist.
 
 # 5) Stage only one logical group at a time
-git <prefix> reset
-git <prefix> add -f <files-for-group-1>
-git <prefix> --no-pager diff --cached --name-status
-git <prefix> --no-pager diff --cached <each-file-in-group-1>
+git reset
+git add -f <files-for-group-1>
+git --no-pager diff --cached --name-status
+git --no-pager diff --cached <each-file-in-group-1>
 
 # 6) Commit that one logical group
-git <prefix> commit -m "<conventional-commit>" -m "<single-paragraph body>"
+git commit -m "<conventional-commit>" -m "<single-paragraph body>"
 
 # 7) Repeat reset/add/diff/commit for remaining logical groups until clean
-git <prefix> reset
-git <prefix> add -f <files-for-group-2>
+git reset
+git add -f <files-for-group-2>
 ...
 
 # 8) Final check
-git <prefix> status --porcelain
+git status --porcelain
 ```
 
 Rules:
@@ -62,6 +92,7 @@ Rules:
 - Do not create one giant commit when there are multiple logical changes
 - If you choose a single commit, explicitly justify why all changes are one inseparable logical unit
 - Do not include untracked files unless explicitly requested
+- Do not run cd
 
 Required response format:
 
@@ -73,19 +104,58 @@ Command run:
 - 
 "@
 
-if ($ExtraInstructions.Count -gt 0) {
-    $prompt += "`n`nAdditional user instructions:`n" + ($ExtraInstructions -join ' ')
+if ($Instructions.Count -gt 0) {
+    $prompt += "`n`nAdditional user instructions:`n" + ($Instructions -join ' ')
 }
 
-$env:GIT_DIR = "$HOME/.dotfiles"
-$env:GIT_WORK_TREE = "$HOME"
+$defaultPiArgs = @(
+    '--thinking', 'medium',
+    '--tools', 'read,bash',
+    '--provider', 'openai-codex',
+    '--model', 'gpt-5.3-codex'
+)
+
+$allPiArgs = $defaultPiArgs + $PiArgs + @($prompt)
+
+$oldGitDir = $env:GIT_DIR
+$oldWorkTree = $env:GIT_WORK_TREE
+$oldOptionalLocks = $env:GIT_OPTIONAL_LOCKS
+$exitCode = 0
 
 Push-Location $HOME
 try {
-    pi --thinking medium --tools "read,bash" --provider openai-codex --model gpt-5.3-codex --no-extensions --no-prompt-templates --no-skills $prompt
+    $env:GIT_DIR = "$HOME/.dotfiles"
+    $env:GIT_WORK_TREE = "$HOME"
+    $env:GIT_OPTIONAL_LOCKS = '0'
+
+    & pi @allPiArgs
+    if ($null -ne $LASTEXITCODE) {
+        $exitCode = $LASTEXITCODE
+    }
 }
 finally {
     Pop-Location
-    Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue
-    Remove-Item Env:GIT_WORK_TREE -ErrorAction SilentlyContinue
+
+    if ($null -eq $oldGitDir) {
+        Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:GIT_DIR = $oldGitDir
+    }
+
+    if ($null -eq $oldWorkTree) {
+        Remove-Item Env:GIT_WORK_TREE -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:GIT_WORK_TREE = $oldWorkTree
+    }
+
+    if ($null -eq $oldOptionalLocks) {
+        Remove-Item Env:GIT_OPTIONAL_LOCKS -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:GIT_OPTIONAL_LOCKS = $oldOptionalLocks
+    }
 }
+
+exit $exitCode
