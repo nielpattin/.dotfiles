@@ -157,6 +157,7 @@ function makeSessionManager(hasSnapshot = true) {
 function makeCtx(overrides: Record<string, any> = {}) {
   const confirm = mock(async () => true);
   const notify = mock(() => {});
+  const setWidget = mock(() => {});
   return {
     cwd: TEST_REPO_CWD,
     hasUI: false,
@@ -164,9 +165,21 @@ function makeCtx(overrides: Record<string, any> = {}) {
     ui: {
       confirm,
       notify,
+      setWidget,
     },
     ...overrides,
   };
+}
+
+function getWidgetLines(setWidgetMock: any): string[][] {
+  return (setWidgetMock.mock.calls as any[])
+    .filter((call: any[]) => call[0] === "subagent-runs" && Array.isArray(call[1]))
+    .map((call: any[]) => call[1] as string[]);
+}
+
+function getWidgetClearCalls(setWidgetMock: any): any[][] {
+  return (setWidgetMock.mock.calls as any[])
+    .filter((call: any[]) => call[0] === "subagent-runs" && call[1] === undefined);
 }
 
 function createExtension(options?: {
@@ -862,6 +875,286 @@ describe("subagent index", () => {
     expect(result.content[0]?.text).toContain("Parallel: 1/2 succeeded");
     expect(result.content[0]?.text).toContain("[worker] runtime failed: Tests failed in child task.");
     expect(result.content[0]?.text).toContain("[reviewer] completed: reviewer complete");
+  });
+
+  it("renders a persistent above-editor widget with queued/running/recent states", async () => {
+    discoverAgentsResult = {
+      agents: [makeAgent(), makeAgent({ name: "reviewer" })],
+      projectAgentsDir: null,
+    };
+
+    runAgentImpl = async (opts) => {
+      opts.onUpdate?.({
+        details: opts.makeDetails([
+          makeResult({
+            agent: opts.agentName,
+            task: opts.task,
+            summary: opts.summary,
+            delegationMode: opts.delegationMode,
+            exitCode: -1,
+            activeTool: { name: "read", args: { path: "README.md" }, startedAt: Date.now() },
+          }),
+        ]),
+      });
+
+      return makeResult({
+        agent: opts.agentName,
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+        exitCode: opts.agentName === "reviewer" ? 1 : 0,
+        stopReason: opts.agentName === "reviewer" ? "error" : undefined,
+        failureCategory: opts.agentName === "reviewer" ? "runtime" : undefined,
+        errorMessage: opts.agentName === "reviewer" ? "review failed" : undefined,
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: `${opts.agentName} complete` }],
+          },
+        ],
+      });
+    };
+
+    const ctx = makeCtx({ hasUI: true });
+    const { tool } = createExtension();
+    await tool.execute(
+      "call-widget",
+      {
+        tasks: [
+          { agent: "worker", summary: "Write", task: "Write docs" },
+          { agent: "reviewer", summary: "Review", task: "Review docs" },
+        ],
+      },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    const widgetLines = getWidgetLines(ctx.ui.setWidget as any).flat();
+    expect(widgetLines.some((line) => line.includes("queued"))).toBe(true);
+    expect(widgetLines.some((line) => line.includes("running"))).toBe(true);
+    expect(widgetLines.some((line) => line.includes("✓ worker"))).toBe(true);
+    expect(widgetLines.some((line) => line.includes("✕ reviewer"))).toBe(true);
+  });
+
+  it("finalizes queued/running widget rows when parallel execution throws unexpectedly", async () => {
+    discoverAgentsResult = {
+      agents: [makeAgent(), makeAgent({ name: "reviewer" })],
+      projectAgentsDir: null,
+    };
+
+    runAgentImpl = async (opts) => {
+      if (opts.agentName === "worker") {
+        throw new Error("boom from worker");
+      }
+      return makeResult({
+        agent: opts.agentName,
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+      });
+    };
+
+    const ctx = makeCtx({ hasUI: true });
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-hard-fail",
+      {
+        tasks: [
+          { agent: "worker", summary: "Write", task: "Write docs" },
+          { agent: "reviewer", summary: "Review", task: "Review docs" },
+        ],
+      },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.details.results).toHaveLength(2);
+    expect(result.details.results.every((taskResult: any) => taskResult.exitCode !== -1)).toBe(true);
+    const latestWidget = getWidgetLines(ctx.ui.setWidget as any).at(-1)?.join("\n") ?? "";
+    expect(latestWidget).toContain("0 running · 0 queued · 2 recent");
+    expect(latestWidget).toContain("✕ worker");
+    expect(latestWidget).toContain("✕ reviewer");
+  });
+
+  it("auto-clears the widget after linger expiry", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+    runAgentImpl = async (opts) =>
+      makeResult({
+        agent: opts.agentName,
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+      });
+
+    const originalDateNow = Date.now;
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    let now = 1_000;
+    const timers = new Map<number, { at: number; cb: () => void }>();
+    let nextTimerId = 1;
+
+    const advanceTime = (ms: number) => {
+      now += ms;
+      while (true) {
+        const due = [...timers.entries()]
+          .filter(([, timer]) => timer.at <= now)
+          .sort((a, b) => a[1].at - b[1].at);
+        if (due.length === 0) break;
+        for (const [id, timer] of due) {
+          timers.delete(id);
+          timer.cb();
+        }
+      }
+    };
+
+    try {
+      (Date.now as any) = () => now;
+      (globalThis.setTimeout as any) = (cb: (...args: any[]) => void, delay?: number) => {
+        const id = nextTimerId++;
+        timers.set(id, { at: now + (delay ?? 0), cb: () => cb() });
+        return id;
+      };
+      (globalThis.clearTimeout as any) = (id: number) => {
+        timers.delete(id);
+      };
+
+      const ctx = makeCtx({ hasUI: true });
+      const { tool } = createExtension();
+
+      await tool.execute(
+        "call-linger",
+        { agent: "worker", summary: "Linger", task: "Do work" },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      expect(getWidgetLines(ctx.ui.setWidget as any).flat().some((line) => line.includes("✓ worker"))).toBe(true);
+      expect(getWidgetClearCalls(ctx.ui.setWidget as any)).toHaveLength(0);
+
+      advanceTime(5_010);
+
+      expect(getWidgetClearCalls(ctx.ui.setWidget as any).length).toBeGreaterThan(0);
+    } finally {
+      (Date.now as any) = originalDateNow;
+      (globalThis.setTimeout as any) = originalSetTimeout;
+      (globalThis.clearTimeout as any) = originalClearTimeout;
+    }
+  });
+
+  it("keeps prior runs visible across multiple task invocations in one session until expiry", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+    runAgentImpl = async (opts) =>
+      makeResult({
+        agent: opts.agentName,
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+      });
+
+    const originalDateNow = Date.now;
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    let now = 10_000;
+    const timers = new Map<number, { at: number; cb: () => void }>();
+    let nextTimerId = 1;
+
+    const advanceTime = (ms: number) => {
+      now += ms;
+      while (true) {
+        const due = [...timers.entries()]
+          .filter(([, timer]) => timer.at <= now)
+          .sort((a, b) => a[1].at - b[1].at);
+        if (due.length === 0) break;
+        for (const [id, timer] of due) {
+          timers.delete(id);
+          timer.cb();
+        }
+      }
+    };
+
+    try {
+      (Date.now as any) = () => now;
+      (globalThis.setTimeout as any) = (cb: (...args: any[]) => void, delay?: number) => {
+        const id = nextTimerId++;
+        timers.set(id, { at: now + (delay ?? 0), cb: () => cb() });
+        return id;
+      };
+      (globalThis.clearTimeout as any) = (id: number) => {
+        timers.delete(id);
+      };
+
+      const ctx = makeCtx({ hasUI: true });
+      const { tool } = createExtension();
+
+      await tool.execute(
+        "call-1",
+        { agent: "worker", summary: "First run", task: "Do first" },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      advanceTime(2_000);
+
+      await tool.execute(
+        "call-2",
+        { agent: "worker", summary: "Second run", task: "Do second" },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const allWidgetLines = getWidgetLines(ctx.ui.setWidget as any).flat();
+      expect(allWidgetLines.some((line) => line.includes("First run"))).toBe(true);
+      expect(allWidgetLines.some((line) => line.includes("Second run"))).toBe(true);
+
+      advanceTime(7_100);
+      expect(getWidgetClearCalls(ctx.ui.setWidget as any).length).toBeGreaterThan(0);
+    } finally {
+      (Date.now as any) = originalDateNow;
+      (globalThis.setTimeout as any) = originalSetTimeout;
+      (globalThis.clearTimeout as any) = originalClearTimeout;
+    }
+  });
+
+  it("keeps task execution working when widget rendering fails", async () => {
+    discoverAgentsResult = { agents: [makeAgent()], projectAgentsDir: null };
+    runAgentImpl = async (opts) =>
+      makeResult({
+        agent: opts.agentName,
+        task: opts.task,
+        summary: opts.summary,
+        delegationMode: opts.delegationMode,
+      });
+
+    const setWidget = mock(() => {
+      throw new Error("widget render failed");
+    });
+    const ctx = makeCtx({
+      hasUI: true,
+      ui: {
+        confirm: mock(async () => true),
+        notify: mock(() => {}),
+        setWidget,
+      },
+    });
+
+    const { tool } = createExtension();
+    const result = await tool.execute(
+      "call-widget-fail",
+      { agent: "worker", summary: "Safe", task: "Do work" },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]?.text).toBe("done");
+    expect(setWidget).toHaveBeenCalledTimes(1);
   });
 
   it("rejects parallel batches above the hard task limit", async () => {

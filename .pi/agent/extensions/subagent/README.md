@@ -325,6 +325,17 @@ When running multiple agents in parallel:
 - Failed tasks are summarized with a failure category (`validation`, `startup`, `abort`, `runtime`)
 - Main agent receives a combined result after all finish:
 
+### Above-editor delegated-runs widget
+
+When Pi UI is available, the extension also maintains a persistent `subagent-runs` widget above the editor:
+
+- Tracks delegated runs across the session (not just one tool call)
+- Shows at least `running` and `queued` counts plus capped run rows
+- Updates live as partial activity/status events arrive
+- Keeps recently finished rows visible briefly with explicit `✓ success`, `✕ error`, or `⏹ aborted` states
+- Clears itself automatically when no active/recent runs remain
+- If widget rendering fails once, task execution continues and future widget updates are disabled for safety
+
 ```
 Parallel: 2/3 succeeded
 
@@ -341,6 +352,7 @@ Parallel: 2/3 succeeded
 - **Failure Categories** — Failed runs are normalized into `validation`, `startup`, `abort`, or `runtime` so summaries and cards are easier to triage.
 - **Depth Guard** — Delegation depth is limited by default to prevent recursive task spawning.
 - **Streaming Updates** — Watch task progress in real-time as tool calls and outputs stream in.
+- **Session Run Widget** — Above-editor delegated-runs widget tracks queued/running/recent outcomes across the full session with short-lived completion states.
 - **Rich TUI Rendering** — Collapsed/expanded views with task previews, usage stats, tool call previews, markdown output, and explicit failure categories.
 - **Security Confirmation** — Project-local agents require explicit user approval before execution.
 

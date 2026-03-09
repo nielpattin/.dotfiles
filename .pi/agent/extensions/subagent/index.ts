@@ -336,6 +336,57 @@ function getResultStatusLabel(result: SingleResult): string {
   return result.stopReason || "failed";
 }
 
+type WidgetRunState = "queued" | "running" | "success" | "error" | "aborted";
+
+interface DelegatedRunWidgetItem {
+  key: string;
+  agent: string;
+  summary: string;
+  state: WidgetRunState;
+  startedAt: number;
+  updatedAt: number;
+  finishedAt?: number;
+  activity?: string;
+  error?: string;
+}
+
+const SUBAGENT_RUNS_WIDGET_ID = "subagent-runs";
+const SUBAGENT_RUNS_WIDGET_MAX_ROWS = 8;
+const SUBAGENT_RUNS_WIDGET_MAX_LINE_LENGTH = 84;
+const SUBAGENT_RUNS_WIDGET_LINGER_MS = 5_000;
+
+function shortenInline(text: string, max = SUBAGENT_RUNS_WIDGET_MAX_LINE_LENGTH): string {
+  const compact = text.replace(/\r\n?/g, "\n").replace(/\s+/g, " ").trim();
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, Math.max(0, max - 3))}...`;
+}
+
+function toWidgetRunState(result: SingleResult): WidgetRunState {
+  if (result.exitCode === -1) return "running";
+  const failureCategory = getFailureCategory(result);
+  if (failureCategory === "abort") return "aborted";
+  if (failureCategory) return "error";
+  return "success";
+}
+
+function getWidgetStateIcon(state: WidgetRunState): string {
+  if (state === "running") return "▶";
+  if (state === "queued") return "○";
+  if (state === "success") return "✓";
+  if (state === "aborted") return "⏹";
+  return "✕";
+}
+
+function pickRunActivity(result: SingleResult): string | undefined {
+  if (result.activeTool?.name) return `tool: ${result.activeTool.name}`;
+  if (result.lastTool?.name) return `last: ${result.lastTool.name}`;
+  const output = getFinalOutput(result.messages);
+  if (output) return shortenInline(output, 44);
+  if (result.errorMessage) return shortenInline(result.errorMessage, 44);
+  if (result.stderr) return shortenInline(result.stderr, 44);
+  return undefined;
+}
+
 /** Get project-local agents referenced by the current request. */
 function getRequestedProjectAgents(
   agents: AgentConfig[],
@@ -389,6 +440,177 @@ export default function (pi: ExtensionAPI) {
   const { maxParallelTasks, concurrency } = parallelConfig;
 
   let discoveredAgents: AgentConfig[] = [];
+  const delegatedRuns = new Map<string, DelegatedRunWidgetItem>();
+  let widgetFailed = false;
+  let widgetLingerTimer: NodeJS.Timeout | undefined;
+  let latestWidgetCtx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } } | undefined;
+
+  const clearWidgetLingerTimer = () => {
+    if (widgetLingerTimer) {
+      clearTimeout(widgetLingerTimer);
+      widgetLingerTimer = undefined;
+    }
+  };
+
+  const clearExpiredDelegatedRuns = (now = Date.now()) => {
+    for (const [key, run] of delegatedRuns.entries()) {
+      if (!run.finishedAt) continue;
+      if (now - run.finishedAt > SUBAGENT_RUNS_WIDGET_LINGER_MS) {
+        delegatedRuns.delete(key);
+      }
+    }
+  };
+
+  const sortDelegatedRuns = (runs: DelegatedRunWidgetItem[]): DelegatedRunWidgetItem[] => {
+    const rank = (state: WidgetRunState): number => {
+      if (state === "running") return 0;
+      if (state === "queued") return 1;
+      return 2;
+    };
+    return [...runs].sort((a, b) => {
+      const rankDiff = rank(a.state) - rank(b.state);
+      if (rankDiff !== 0) return rankDiff;
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
+  };
+
+  const buildDelegatedRunsWidgetLines = (now = Date.now()): string[] => {
+    const visibleRuns = sortDelegatedRuns(
+      [...delegatedRuns.values()].filter((run) =>
+        run.state === "running"
+        || run.state === "queued"
+        || (run.finishedAt !== undefined && now - run.finishedAt <= SUBAGENT_RUNS_WIDGET_LINGER_MS)
+      ),
+    );
+    if (visibleRuns.length === 0) return [];
+
+    const running = visibleRuns.filter((run) => run.state === "running").length;
+    const queued = visibleRuns.filter((run) => run.state === "queued").length;
+    const recent = visibleRuns.length - running - queued;
+
+    const lines = [
+      `Subagent runs: ${running} running · ${queued} queued · ${recent} recent`,
+    ];
+
+    const shownRuns = visibleRuns.slice(0, SUBAGENT_RUNS_WIDGET_MAX_ROWS);
+    for (const run of shownRuns) {
+      const status = `${getWidgetStateIcon(run.state)} ${run.agent}: ${run.summary}`;
+      const detail = run.error || run.activity;
+      lines.push(
+        shortenInline(detail ? `${status} — ${detail}` : status),
+      );
+    }
+
+    const hiddenCount = visibleRuns.length - shownRuns.length;
+    if (hiddenCount > 0) {
+      lines.push(`… ${hiddenCount} more`);
+    }
+
+    return lines.slice(0, 10);
+  };
+
+  const renderDelegatedRunsWidget = (ctxOverride?: {
+    hasUI: boolean;
+    ui?: { setWidget?: (...args: any[]) => void };
+  }) => {
+    if (widgetFailed) return;
+    const ctx = ctxOverride ?? latestWidgetCtx;
+    if (!ctx?.hasUI) return;
+    if (typeof ctx.ui?.setWidget !== "function") return;
+
+    latestWidgetCtx = ctx;
+    const now = Date.now();
+    clearExpiredDelegatedRuns(now);
+    const lines = buildDelegatedRunsWidgetLines(now);
+
+    try {
+      if (lines.length === 0) {
+        ctx.ui.setWidget(SUBAGENT_RUNS_WIDGET_ID, undefined);
+      } else {
+        ctx.ui.setWidget(
+          SUBAGENT_RUNS_WIDGET_ID,
+          lines,
+          { placement: "aboveEditor" },
+        );
+      }
+    } catch (error) {
+      widgetFailed = true;
+      clearWidgetLingerTimer();
+      console.warn(`[pi-task] Failed to render subagent widget: ${String(error)}`);
+      return;
+    }
+
+    clearWidgetLingerTimer();
+    const expirations = [...delegatedRuns.values()]
+      .filter((run) => run.finishedAt !== undefined)
+      .map((run) => (run.finishedAt as number) + SUBAGENT_RUNS_WIDGET_LINGER_MS - now)
+      .filter((ms) => ms > 0)
+      .sort((a, b) => a - b);
+
+    const nextExpiration = expirations[0];
+    if (nextExpiration !== undefined) {
+      widgetLingerTimer = setTimeout(() => {
+        renderDelegatedRunsWidget();
+      }, nextExpiration + 5);
+    }
+  };
+
+  const upsertDelegatedRun = (
+    key: string,
+    partial: Partial<DelegatedRunWidgetItem> & Pick<DelegatedRunWidgetItem, "agent" | "summary" | "state">,
+    ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } },
+  ) => {
+    const now = Date.now();
+    const existing = delegatedRuns.get(key);
+    const next: DelegatedRunWidgetItem = {
+      key,
+      agent: partial.agent,
+      summary: partial.summary,
+      state: partial.state,
+      startedAt: partial.startedAt ?? existing?.startedAt ?? now,
+      updatedAt: partial.updatedAt ?? now,
+      finishedAt: partial.finishedAt ?? existing?.finishedAt,
+      activity: partial.activity ?? existing?.activity,
+      error: partial.error ?? existing?.error,
+    };
+    if (next.state === "running" || next.state === "queued") {
+      next.finishedAt = undefined;
+      if (next.state === "running") next.error = undefined;
+    } else if (!next.finishedAt) {
+      next.finishedAt = now;
+    }
+
+    delegatedRuns.set(key, next);
+    renderDelegatedRunsWidget(ctx);
+  };
+
+  const syncDelegatedRunWithResult = (
+    key: string,
+    fallbackAgent: string,
+    fallbackSummary: string,
+    result: SingleResult,
+    ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } },
+  ) => {
+    const state = toWidgetRunState(result);
+    const now = Date.now();
+    upsertDelegatedRun(
+      key,
+      {
+        agent: result.agent || fallbackAgent,
+        summary: result.summary || fallbackSummary,
+        state,
+        startedAt: result.startedAt,
+        updatedAt: result.updatedAt || now,
+        finishedAt: state === "running" ? undefined : (result.updatedAt || now),
+        activity: pickRunActivity(result),
+        error:
+          state === "error" || state === "aborted"
+            ? shortenInline(result.errorMessage || result.stderr || result.stopReason || state, 44)
+            : undefined,
+      },
+      ctx,
+    );
+  };
 
   function refreshDiscoveredAgents(cwd: string): AgentConfig[] {
     const discovery = discoverAgents(cwd, "both");
@@ -399,6 +621,12 @@ export default function (pi: ExtensionAPI) {
   // Auto-discover agents on session start
   pi.on("session_start", async (_event, ctx) => {
     if (!canDelegate) return;
+
+    delegatedRuns.clear();
+    widgetFailed = false;
+    clearWidgetLingerTimer();
+    latestWidgetCtx = ctx.hasUI ? ctx : undefined;
+    renderDelegatedRunsWidget(ctx);
 
     const agents = refreshDiscoveredAgents(ctx.cwd);
 
@@ -456,6 +684,19 @@ Use single mode for one task, parallel mode when tasks are independent and can r
     };
   });
 
+  pi.on("session_shutdown", async () => {
+    delegatedRuns.clear();
+    clearWidgetLingerTimer();
+    if (!widgetFailed && latestWidgetCtx?.hasUI && typeof latestWidgetCtx.ui?.setWidget === "function") {
+      try {
+        latestWidgetCtx.ui.setWidget(SUBAGENT_RUNS_WIDGET_ID, undefined);
+      } catch {
+        widgetFailed = true;
+      }
+    }
+    latestWidgetCtx = undefined;
+  });
+
   // Register the task tool
   if (canDelegate) {
     pi.registerTool({
@@ -480,7 +721,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       ].join("\n"),
       parameters: TaskParams,
 
-      async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      async execute(toolCallId, params, signal, onUpdate, ctx) {
         const discovery = discoverAgents(ctx.cwd, "both");
         const { agents } = discovery;
 
@@ -670,21 +911,24 @@ Use single mode for one task, parallel mode when tasks are independent and can r
         // ── Parallel mode ──
         if (isParallel) {
           return executeParallel(
+            toolCallId,
             parallelTasks!,
             inheritedThinking,
             forkSessionSnapshotJsonl,
             agents,
             ctx.cwd,
-            maxParallelTasks,
-            concurrency,
             signal,
             onUpdate,
+            ctx,
             makeDetails,
+            maxParallelTasks,
+            concurrency,
           );
         }
 
         // ── Single mode ──
         return executeSingle(
+          toolCallId,
           singleAgent!,
           singleTask!,
           singleSummary!,
@@ -696,6 +940,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
           ctx.cwd,
           signal,
           onUpdate,
+          ctx,
           makeDetails,
         );
       },
@@ -711,6 +956,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
   // -----------------------------------------------------------------------
 
   async function executeSingle(
+    toolCallId: string,
     agentName: string,
     task: string,
     summary: string,
@@ -722,6 +968,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
     baseCwd: string,
     signal: AbortSignal | undefined,
     onUpdate: ((partial: any) => void) | undefined,
+    ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } },
     makeDetails: ReturnType<typeof makeDetailsFactory>,
   ) {
     const agent = agents.find((candidate) => candidate.name === agentName);
@@ -742,6 +989,19 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       provider: agent?.model?.includes("/") ? agent.model.split("/")[0] : undefined,
       thinking: agent?.thinking ?? inheritedThinking,
     };
+    const runKey = `${toolCallId}:0`;
+    upsertDelegatedRun(
+      runKey,
+      {
+        agent: agentName,
+        summary,
+        state: "running",
+        startedAt: now,
+        updatedAt: now,
+        activity: "starting",
+      },
+      ctx,
+    );
 
     const emitSingleProgress = (current: SingleResult) => {
       if (!onUpdate) return;
@@ -756,13 +1016,14 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       });
     };
 
-    const handleChildUpdate = onUpdate
-      ? (partial: any) => {
-          const streamed = partial?.details?.results?.[0];
-          if (streamed) latestResult = streamed as SingleResult;
-          onUpdate(partial);
-        }
-      : undefined;
+    const handleChildUpdate = (partial: any) => {
+      const streamed = partial?.details?.results?.[0];
+      if (streamed) {
+        latestResult = streamed as SingleResult;
+        syncDelegatedRunWithResult(runKey, agentName, summary, latestResult, ctx);
+      }
+      onUpdate?.(partial);
+    };
 
     let heartbeat: NodeJS.Timeout | undefined;
     if (onUpdate) {
@@ -791,7 +1052,22 @@ Use single mode for one task, parallel mode when tasks are independent and can r
           makeDetails: makeDetails("single"),
         });
         latestResult = finalResult;
+        syncDelegatedRunWithResult(runKey, agentName, summary, latestResult, ctx);
         return finalResult;
+      } catch (error) {
+        upsertDelegatedRun(
+          runKey,
+          {
+            agent: agentName,
+            summary,
+            state: signal?.aborted ? "aborted" : "error",
+            updatedAt: Date.now(),
+            finishedAt: Date.now(),
+            error: shortenInline(String(error), 44),
+          },
+          ctx,
+        );
+        throw error;
       } finally {
         if (heartbeat) clearInterval(heartbeat);
       }
@@ -826,6 +1102,7 @@ Use single mode for one task, parallel mode when tasks are independent and can r
   }
 
   async function executeParallel(
+    toolCallId: string,
     tasks: Array<{
       agent: string;
       task: string;
@@ -837,11 +1114,12 @@ Use single mode for one task, parallel mode when tasks are independent and can r
     forkSessionSnapshotJsonl: string | undefined,
     agents: AgentConfig[],
     baseCwd: string,
-    maxParallelTasks: number,
-    concurrency: number,
     signal: AbortSignal | undefined,
     onUpdate: ((partial: any) => void) | undefined,
+    ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } },
     makeDetails: ReturnType<typeof makeDetailsFactory>,
+    maxParallelTasks: number,
+    concurrency: number,
   ) {
     if (tasks.length > maxParallelTasks) {
       return {
@@ -857,8 +1135,21 @@ Use single mode for one task, parallel mode when tasks are independent and can r
 
     // Initialize placeholder results for streaming
     const now = Date.now();
-    const allResults: SingleResult[] = tasks.map((t) => {
+    const runKeys = tasks.map((_task, index) => `${toolCallId}:${index}`);
+    const allResults: SingleResult[] = tasks.map((t, index) => {
       const agent = agents.find((candidate) => candidate.name === t.agent);
+      upsertDelegatedRun(
+        runKeys[index]!,
+        {
+          agent: t.agent,
+          summary: t.summary,
+          state: "queued",
+          startedAt: now,
+          updatedAt: now,
+          activity: "waiting for slot",
+        },
+        ctx,
+      );
       return {
         agent: t.agent,
         agentSource: agent?.source ?? "unknown",
@@ -900,39 +1191,112 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       }, SUBAGENT_UI_REFRESH_MS);
     }
 
+    const finalizeUnexpectedParallelFailure = (error: unknown): SingleResult[] => {
+      const now = Date.now();
+      const failureText = error instanceof Error
+        ? error.message
+        : String(error);
+      const errorMessage = signal?.aborted
+        ? "Task was aborted."
+        : `Parallel execution failed unexpectedly: ${failureText}`;
+
+      const finalized = allResults.map((existing, index) => {
+        if (existing.exitCode !== -1) return existing;
+        const failure: SingleResult = {
+          ...existing,
+          exitCode: signal?.aborted ? 130 : 1,
+          updatedAt: now,
+          stopReason: signal?.aborted ? "aborted" : "error",
+          errorMessage,
+          failureCategory: signal?.aborted ? "abort" : "runtime",
+          stderr: existing.stderr.includes(errorMessage)
+            ? existing.stderr
+            : `${existing.stderr}${existing.stderr && !existing.stderr.endsWith("\n") ? "\n" : ""}${errorMessage}`,
+        };
+        allResults[index] = failure;
+        syncDelegatedRunWithResult(runKeys[index]!, tasks[index]!.agent, tasks[index]!.summary, failure, ctx);
+        return failure;
+      });
+
+      emitProgress();
+      return finalized;
+    };
+
     let results: SingleResult[];
+    let unexpectedFailureMessage: string | undefined;
     try {
       results = await mapConcurrent(
         tasks,
         concurrency,
         async (t, index) => {
-          const result = await runAgent({
-            cwd: baseCwd,
-            agents,
-            agentName: t.agent,
-            task: t.task,
-            summary: t.summary,
-            taskCwd: t.cwd,
-            delegationMode: t.delegationMode,
-            inheritedThinking,
-            forkSessionSnapshotJsonl:
-              t.delegationMode === "fork" ? forkSessionSnapshotJsonl : undefined,
-            parentDepth: currentDepth,
-            maxDepth,
-            signal,
-            onUpdate: (partial) => {
-              if (partial.details?.results[0]) {
-                allResults[index] = partial.details.results[0];
-                emitProgress();
-              }
+          const runKey = runKeys[index]!;
+          upsertDelegatedRun(
+            runKey,
+            {
+              agent: t.agent,
+              summary: t.summary,
+              state: "running",
+              updatedAt: Date.now(),
+              activity: "starting",
             },
-            makeDetails: makeDetails("parallel"),
-          });
-          allResults[index] = result;
-          emitProgress();
-          return result;
+            ctx,
+          );
+
+          try {
+            const result = await runAgent({
+              cwd: baseCwd,
+              agents,
+              agentName: t.agent,
+              task: t.task,
+              summary: t.summary,
+              taskCwd: t.cwd,
+              delegationMode: t.delegationMode,
+              inheritedThinking,
+              forkSessionSnapshotJsonl:
+                t.delegationMode === "fork" ? forkSessionSnapshotJsonl : undefined,
+              parentDepth: currentDepth,
+              maxDepth,
+              signal,
+              onUpdate: (partial) => {
+                if (partial.details?.results[0]) {
+                  allResults[index] = partial.details.results[0];
+                  syncDelegatedRunWithResult(runKey, t.agent, t.summary, allResults[index]!, ctx);
+                  emitProgress();
+                }
+              },
+              makeDetails: makeDetails("parallel"),
+            });
+            allResults[index] = result;
+            syncDelegatedRunWithResult(runKey, t.agent, t.summary, result, ctx);
+            emitProgress();
+            return result;
+          } catch (error) {
+            const now = Date.now();
+            const errorText = error instanceof Error ? error.message : String(error);
+            const failureMessage = signal?.aborted
+              ? "Task was aborted."
+              : `Parallel task crashed: ${errorText}`;
+            const failure: SingleResult = {
+              ...allResults[index]!,
+              exitCode: signal?.aborted ? 130 : 1,
+              updatedAt: now,
+              stopReason: signal?.aborted ? "aborted" : "error",
+              errorMessage: failureMessage,
+              failureCategory: signal?.aborted ? "abort" : "runtime",
+              stderr: allResults[index]!.stderr.includes(failureMessage)
+                ? allResults[index]!.stderr
+                : `${allResults[index]!.stderr}${allResults[index]!.stderr && !allResults[index]!.stderr.endsWith("\n") ? "\n" : ""}${failureMessage}`,
+            };
+            allResults[index] = failure;
+            syncDelegatedRunWithResult(runKey, t.agent, t.summary, failure, ctx);
+            emitProgress();
+            throw error;
+          }
         },
       );
+    } catch (error) {
+      unexpectedFailureMessage = error instanceof Error ? error.message : String(error);
+      results = finalizeUnexpectedParallelFailure(error);
     } finally {
       if (heartbeat) clearInterval(heartbeat);
     }
@@ -950,10 +1314,13 @@ Use single mode for one task, parallel mode when tasks are independent and can r
       content: [
         {
           type: "text" as const,
-          text: `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
+          text: unexpectedFailureMessage
+            ? `Parallel execution encountered an unexpected failure: ${unexpectedFailureMessage}\n\nParallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`
+            : `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
         },
       ],
       details: makeDetails("parallel")(results),
+      ...(unexpectedFailureMessage ? { isError: true } : {}),
     };
   }
 }
