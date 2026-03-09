@@ -198,7 +198,7 @@ beforeEach(() => {
 });
 
 describe("runAgent", () => {
-  it("completes successfully and propagates child env vars", async () => {
+  it("completes successfully, propagates child env vars, and inherits default extensions when omitted", async () => {
     const proc = new MockChildProcess();
 
     spawnImpl = () => {
@@ -247,7 +247,86 @@ describe("runAgent", () => {
 
     const piArgs = getPiArgs(spawnCalls[0]!);
     expect(piArgs).toContain("--no-session");
+    expect(piArgs).not.toContain("--no-extensions");
+    expect(piArgs).not.toContain("-e");
     expect(piArgs.at(-1)).toBe("Task: Do the thing");
+  });
+
+  it("treats explicit empty extensions as load none", async () => {
+    const proc = new MockChildProcess();
+
+    spawnImpl = () => {
+      setTimeout(() => {
+        emitJson(proc, {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "extensions disabled" }],
+          },
+        });
+        proc.close(0);
+      }, 5);
+      return proc;
+    };
+
+    const result = await runAgent({
+      cwd: workDir,
+      agents: [makeAgent({ extensions: [] })],
+      agentName: "worker",
+      task: "Do the thing",
+      summary: "Explicit empty extensions",
+      delegationMode: "spawn",
+      parentDepth: 0,
+      maxDepth: 1,
+      makeDetails,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const piArgs = getPiArgs(spawnCalls[0]!);
+    expect(piArgs).toContain("--no-extensions");
+    expect(piArgs).not.toContain("-e");
+  });
+
+  it("forwards explicit extensions as an override list", async () => {
+    const proc = new MockChildProcess();
+
+    spawnImpl = () => {
+      setTimeout(() => {
+        emitJson(proc, {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "extensions wired" }],
+          },
+        });
+        proc.close(0);
+      }, 5);
+      return proc;
+    };
+
+    const result = await runAgent({
+      cwd: workDir,
+      agents: [makeAgent({ extensions: ["rtk", "read-map"] })],
+      agentName: "worker",
+      task: "Do the thing",
+      summary: "Explicit extensions",
+      delegationMode: "spawn",
+      parentDepth: 0,
+      maxDepth: 1,
+      makeDetails,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const piArgs = getPiArgs(spawnCalls[0]!);
+    expect(piArgs).toContain("--no-extensions");
+    expect(piArgs).toEqual(
+      expect.arrayContaining([
+        "-e",
+        "rtk",
+        "-e",
+        "read-map",
+      ]),
+    );
   });
 
   it("returns an error for an unknown agent without spawning a process", async () => {

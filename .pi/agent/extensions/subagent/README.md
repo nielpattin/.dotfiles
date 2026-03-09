@@ -183,7 +183,8 @@ name: worker
 description: Expert worker agent for handling tasks
 model: openai-codex/gpt-5.3-codex
 tools: read, write
-skills: triage-expert
+skills: [triage-expert]
+extensions: rtk, read-map
 ---
 
 You are an expert technical worker. Your task is to handle and complete tasks efficiently and accurately.
@@ -197,14 +198,20 @@ You are an expert technical worker. Your task is to handle and complete tasks ef
 | `description` | Yes      | —                                | What the agent does (shown to the main agent)                                                                                                                              |
 | `model`       | No       | Uses the default pi model        | Overrides the model for this agent. You can include a provider prefix (e.g. `openai-codex/gpt-5.3-codex` or `openrouter/claude-3.5-sonnet`) to force a specific provider. |
 | `thinking`    | No       | Uses Pi's default thinking level | Sets the thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`). Equivalent to `--thinking`.                                                                  |
-| `tools`       | No       | `read,bash,edit,write`           | Comma-separated list of **built-in** tools to enable for this agent. If omitted, defaults apply.                                                                           |
-| `skills`      | No       | none                             | Comma-separated list or string array of Pi skill names to preload into the delegated task prompt before `Task: ...`.                                                       |
+| `tools`       | No       | `read,bash,edit,write`           | Comma-separated list or string array of **built-in** tools to enable for this agent. If omitted, defaults apply.                                                          |
+| `skills`      | No       | none                             | Single Pi skill name to preload for this agent. Accepts either a comma-separated string or a string array; if multiple skills are listed, Pi keeps only the first. |
+| `extensions`  | No       | all/default extensions           | Extension sources to enable for this agent. Accepts either a comma-separated string or a string array. Omitted means inherit Pi's default extension loading. A blank YAML value (`extensions:`) or `[]` disables all extensions for that child. `extensions: ""` is treated the same as omission/default loading. |
 
 Notes:
 
 - `model` accepts `provider/model` syntax — this is a Pi feature. Use it when multiple providers offer the same model ID.
 - `thinking` uses the same values as Pi's `--thinking` flag; it's recommended to set it explicitly since thinking support varies by model.
-- `tools` only controls built-in tools. Extension tools remain available unless extensions are disabled.
+- `tools` only controls built-in tools.
+- `extensions` only overrides child extension loading when it is explicitly set on the agent file:
+  - omitted → inherit Pi's default/all extension loading
+  - `extensions:` or `extensions: []` → pass `--no-extensions` and load none
+  - non-empty list → pass `--no-extensions` plus repeated `-e <extension>` flags
+  - `extensions: ""` → treat like omission/default loading
 - `skills` are looked up using Pi's normal skill loader relative to the task's working directory (`task.cwd` when set, otherwise the parent `cwd`). Missing skills are reported as warnings, but the task still runs.
 - The Markdown body below the frontmatter becomes the agent's system prompt and is **appended** to Pi's default system prompt (it does **not** replace it).
 
@@ -216,7 +223,19 @@ Notes:
 
 ### Skills
 
-If an agent declares `skills`, Pi Task reads those skill files up front and prepends them to the delegated prompt.
+If an agent declares `skills`, Pi Task reads that skill file up front and prepends it to the delegated prompt.
+
+Supported syntaxes:
+
+```yaml
+skills: ui-design
+```
+
+```yaml
+skills: [ui-design]
+```
+
+If multiple skills are listed in frontmatter, Pi Task keeps only the first entry.
 
 Example:
 
@@ -237,10 +256,29 @@ At runtime, the delegated prompt becomes roughly:
 ```text
 <skill name="resolve-conflicts" ...>...</skill>
 
-<skill name="writing-git-commits" ...>...</skill>
-
 Task: Review the requested changes
 ```
+
+### Extensions
+
+Agent files can also opt specific extensions into delegated subagents.
+
+Supported syntaxes:
+
+```yaml
+extensions: rtk, read-map
+```
+
+```yaml
+extensions: [rtk, read-map]
+```
+
+Extension loading behavior:
+
+- omit `extensions` to inherit Pi's default/all extension loading
+- set `extensions:` or `extensions: []` to load none
+- set a non-empty list to load only those listed extensions
+- `extensions: ""` behaves like omission/default loading
 
 ### Available Built-in Tools
 
@@ -374,10 +412,19 @@ runner.test.ts — Bun tests for runner lifecycle behavior
 Run:
 
 ```bash
-bun test extensions/subagent/index.test.ts extensions/subagent/render.test.ts extensions/subagent/runner.test.ts
+bun test extensions/subagent/agents.test.ts extensions/subagent/index.test.ts extensions/subagent/render.test.ts extensions/subagent/runner.test.ts
 ```
 
 Current tests:
+
+### `agents.test.ts`
+
+- `parses skills/extensions from comma-separated strings and yaml arrays` — accepts both list syntaxes for agent frontmatter
+- `preserves omitted vs explicitly empty extensions` — keeps `extensions` undefined when omitted and maps both `extensions:` and `extensions: []` to `[]`
+- `treats extensions: "" like omission/default behavior without warning` — keeps the agent and leaves `extensions` unset so default extension loading still applies
+- `keeps only the first listed skill without warning` — enforces the single-skill rule deterministically without rejecting the agent
+- `warns on invalid skills types but keeps invalid extensions types silent` — preserves existing skill warnings while making NIE-20 extension parsing fall back quietly
+- `lets project agents override user agents while preserving parsed extensions` — keeps the existing precedence rules while carrying parsed extension config through discovery
 
 ### `index.test.ts`
 
@@ -412,7 +459,9 @@ Current tests:
 
 ### `runner.test.ts`
 
-- `successful child run` — child process completes, output is captured, and task env vars are passed through
+- `successful child run` — child process completes, output is captured, task env vars are passed through, and omitted `extensions` inherits the default Pi extension loading
+- `explicit empty extensions` — passes `--no-extensions` when the agent explicitly sets `extensions: []`
+- `explicit extension forwarding` — passes `--no-extensions` plus repeated `-e` flags when the agent lists extensions explicitly
 - `unknown agent rejection` — fails before spawn when the requested agent does not exist and classifies it as validation
 - `fork requires snapshot` — rejects `fork` mode when no parent session snapshot is provided and classifies it as validation
 - `streamed event parsing` — reads session, tool, tool-result, and assistant events into the final result

@@ -2,7 +2,7 @@
  * Agent discovery and configuration.
  *
  * Agents are Markdown files with YAML frontmatter that define name, description,
- * optional model/tools, and a system prompt body.
+ * optional model/tools/extensions, and a system prompt body.
  *
  * Lookup locations:
  *   - User agents:    ~/.pi/agent/agents/*.md
@@ -21,6 +21,7 @@ export interface AgentConfig {
   description: string;
   tools?: string[];
   skills?: string[];
+  extensions?: string[];
   model?: string;
   thinking?: string;
   systemPrompt: string;
@@ -43,6 +44,48 @@ function isDirectory(p: string): boolean {
   } catch {
     return false;
   }
+}
+
+function parseListField(
+  filePath: string,
+  fieldName: "tools" | "skills" | "extensions",
+  value: unknown,
+): string[] | undefined {
+  if (value === undefined) return undefined;
+
+  if (fieldName === "extensions" && value === null) {
+    return [];
+  }
+
+  let parsed: string[];
+  if (typeof value === "string") {
+    parsed = value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  } else if (Array.isArray(value)) {
+    parsed = value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  } else {
+    if (fieldName !== "extensions") {
+      console.warn(
+        `[pi-task] Ignoring invalid ${fieldName} field in "${filePath}". Expected a comma-separated string or string array.`,
+      );
+    }
+    return undefined;
+  }
+
+  if (parsed.length === 0) {
+    return fieldName === "extensions" ? [] : undefined;
+  }
+
+  if (fieldName === "skills" && parsed.length > 1) {
+    return [parsed[0]!];
+  }
+
+  return parsed;
 }
 
 /** Walk up from `cwd` looking for a `.pi/agents` directory. */
@@ -91,49 +134,27 @@ function parseAgentFile(
       : "";
   if (!name || !description) return null;
 
-  let tools: string[] | undefined;
-  if (typeof frontmatter.tools === "string") {
-    const parsedTools = frontmatter.tools
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (parsedTools.length > 0) tools = parsedTools;
-  } else if (Array.isArray(frontmatter.tools)) {
-    const parsedTools = frontmatter.tools
-      .filter((t): t is string => typeof t === "string")
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (parsedTools.length > 0) tools = parsedTools;
-  } else if (frontmatter.tools !== undefined) {
-    console.warn(
-      `[pi-task] Ignoring invalid tools field in "${filePath}". Expected a comma-separated string or string array.`,
-    );
+  if (
+    typeof frontmatter.extensions === "string"
+    && frontmatter.extensions.trim() === ""
+  ) {
+    delete frontmatter.extensions;
   }
 
-  let skills: string[] | undefined;
-  if (typeof frontmatter.skills === "string") {
-    const parsedSkills = frontmatter.skills
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (parsedSkills.length > 0) skills = parsedSkills;
-  } else if (Array.isArray(frontmatter.skills)) {
-    const parsedSkills = frontmatter.skills
-      .filter((s): s is string => typeof s === "string")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (parsedSkills.length > 0) skills = parsedSkills;
-  } else if (frontmatter.skills !== undefined) {
-    console.warn(
-      `[pi-task] Ignoring invalid skills field in "${filePath}". Expected a comma-separated string or string array.`,
-    );
-  }
+  const tools = parseListField(filePath, "tools", frontmatter.tools);
+  const skills = parseListField(filePath, "skills", frontmatter.skills);
+  const extensions = parseListField(
+    filePath,
+    "extensions",
+    frontmatter.extensions,
+  );
 
   return {
     name,
     description,
     tools,
     skills,
+    extensions,
     model:
       typeof frontmatter.model === "string" ? frontmatter.model : undefined,
     thinking:

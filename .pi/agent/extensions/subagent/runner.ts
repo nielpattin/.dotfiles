@@ -462,8 +462,17 @@ function buildPiArgs(
 
   if (agent.model) args.push("--model", agent.model);
   if (thinkingLevel) args.push("--thinking", thinkingLevel);
-  if (agent.tools && agent.tools.length > 0)
+  if (agent.tools && agent.tools.length > 0) {
     args.push("--tools", agent.tools.join(","));
+  }
+
+  if (agent.extensions !== undefined) {
+    args.push("--no-extensions");
+    for (const extension of agent.extensions) {
+      args.push("-e", extension);
+    }
+  }
+
   if (systemPromptPath) args.push("--append-system-prompt", systemPromptPath);
   args.push(prompt);
   return args;
