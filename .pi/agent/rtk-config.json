@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "techniques": {
+    "ansiStripping": true,
+    "truncation": { "enabled": false },
+    "sourceCodeFiltering": { "enabled": false },
+    "smartTruncation": { "enabled": false },
+    "testOutputAggregation": true,
+    "buildOutputFiltering": true,
+    "gitCompaction": false,
+    "searchResultGrouping": false,
+    "linterAggregation": true
+  }
+}

@@ -1,7 +1,7 @@
 ---
 name: worker
 description: General-purpose subagent with full capabilities
-model: openai-codex/gpt-5.3-codex
+model: openai-codex/gpt-5.4
 thinking: medium
 tools: read, write, grep, find, ls, bash
 ---

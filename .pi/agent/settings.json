@@ -9,7 +9,8 @@
   "transport": "sse",
   "packages": [
     "git:https://github.com/calesennett/pi-codex-fast",
-    "npm:pi-mcporter"
+    "npm:pi-mcporter",
+    "npm:pi-rtk-noemoji"
   ],
   "skills": [
     "-..\\..\\.agents\\skills\\prd\\SKILL.md",

@@ -11,6 +11,7 @@ Rules:
 - Keep it concise and natural.
 - Prefer 3-8 words (hard max 10 words).
 - Focus on the main intent/task.
+- If the input contains multiple recent user messages, prioritize the newest message while still using earlier ones for context.
 - Preserve important technical terms, filenames, error codes, numbers.
 - Never include tool names (read, bash, edit, etc).
 - Never include quotes.
@@ -74,7 +75,14 @@ function extractMessageText(content: unknown): string {
     .trim();
 }
 
-function getFirstUserMessageText(ctx: ExtensionCommandContext): string | null {
+type ParsedTitleMessage = {
+  prefix: string;
+  userPrompt: string;
+};
+
+function getParsedUserMessages(ctx: ExtensionCommandContext): ParsedTitleMessage[] {
+  const messages: ParsedTitleMessage[] = [];
+
   for (const entry of ctx.sessionManager.getBranch()) {
     if (!isObject(entry) || entry.type !== "message") {
       continue;
@@ -86,12 +94,64 @@ function getFirstUserMessageText(ctx: ExtensionCommandContext): string | null {
     }
 
     const text = extractMessageText(message.content);
-    if (text) {
-      return text;
+    if (!text) {
+      continue;
+    }
+
+    const parsed = parseTitleInput(text);
+    if (parsed) {
+      messages.push(parsed);
     }
   }
 
-  return null;
+  return messages;
+}
+
+function getRecentMessageWindowSize(messageCount: number): number {
+  if (messageCount >= 5) {
+    return 3;
+  }
+
+  if (messageCount >= 3) {
+    return 2;
+  }
+
+  return 1;
+}
+
+function buildRecentTitleInput(
+  ctx: ExtensionCommandContext,
+): { prefix: string; userPrompt: string; fallbackPrompt: string } | null {
+  const messages = getParsedUserMessages(ctx);
+  if (messages.length === 0) {
+    return null;
+  }
+
+  const selectedMessages = messages.slice(-getRecentMessageWindowSize(messages.length));
+  const latestMessage = selectedMessages[selectedMessages.length - 1]!;
+  const latestText = (latestMessage.userPrompt || latestMessage.prefix.trim()).trim();
+
+  if (selectedMessages.length === 1) {
+    return {
+      prefix: latestMessage.prefix,
+      userPrompt: latestMessage.userPrompt,
+      fallbackPrompt: latestText,
+    };
+  }
+
+  const sharedPrefix = selectedMessages.every((message) => message.prefix && message.prefix === selectedMessages[0]?.prefix)
+    ? selectedMessages[0]?.prefix ?? ""
+    : "";
+
+  const recentMessages = selectedMessages
+    .map((message, index) => `${index + 1}. ${(message.userPrompt || message.prefix.trim()).trim()}`)
+    .join("\n");
+
+  return {
+    prefix: sharedPrefix,
+    userPrompt: `Recent user messages (oldest to newest):\n${recentMessages}\n\nGenerate the session title for the current active topic, giving the newest message the most weight.`,
+    fallbackPrompt: latestText,
+  };
 }
 
 function sanitizeTitle(rawSummary: string): string | null {
@@ -182,8 +242,10 @@ async function autoNameSession(input: {
   ctx: ExtensionContext;
   prefix: string;
   userPrompt: string;
+  fallbackPrompt?: string;
 }): Promise<{ fallback: string; title: string | null }> {
-  const fallback = `${input.prefix}${input.userPrompt.slice(0, 60)}`.trim();
+  const fallbackSource = (input.fallbackPrompt || input.userPrompt).trim();
+  const fallback = `${input.prefix}${fallbackSource.slice(0, 60)}`.trim();
   if (fallback) {
     input.pi.setSessionName(fallback);
   }
@@ -214,18 +276,30 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_switch", syncNamedState);
 
   pi.registerCommand("autoname-sessions", {
-    description: "Auto-name from first user message or provided text",
+    description: "Auto-name from recent user messages or provided text",
     handler: async (args, ctx) => {
-      const source = args.trim() || getFirstUserMessageText(ctx) || "";
-      const parsed = parseTitleInput(source);
+      const trimmedArgs = args.trim();
+      const titleInput = trimmedArgs
+        ? (() => {
+            const parsed = parseTitleInput(trimmedArgs);
+            if (!parsed) {
+              return null;
+            }
 
-      if (!parsed) {
+            return {
+              ...parsed,
+              fallbackPrompt: (parsed.userPrompt || parsed.prefix.trim()).trim(),
+            };
+          })()
+        : buildRecentTitleInput(ctx);
+
+      if (!titleInput) {
         ctx.ui.notify("No suitable user message found. Usage: /autoname-sessions [text]", "warning");
         return;
       }
 
-      if (!parsed.userPrompt) {
-        const title = parsed.prefix.trim();
+      if (!titleInput.userPrompt) {
+        const title = titleInput.prefix.trim();
         pi.setSessionName(title);
         named = true;
         ctx.ui.notify(`Session named: ${title}`, "info");
@@ -235,8 +309,9 @@ export default function (pi: ExtensionAPI) {
       const result = await autoNameSession({
         pi,
         ctx,
-        prefix: parsed.prefix,
-        userPrompt: parsed.userPrompt,
+        prefix: titleInput.prefix,
+        userPrompt: titleInput.userPrompt,
+        fallbackPrompt: titleInput.fallbackPrompt,
       });
 
       named = true;
