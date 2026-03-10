@@ -6,12 +6,12 @@ Lean powerline-style status UI for Pi that renders inside the editor chrome.
 
 Top row:
 - pi icon
-- model
+- model + provider name
 - thinking level
 - cost
 - path
 - git branch + file status
-- context usage
+- cache total + context usage
 
 Extra rows:
 - compact extension statuses below the editor when they overflow

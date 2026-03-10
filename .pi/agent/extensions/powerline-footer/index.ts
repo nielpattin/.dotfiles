@@ -8,14 +8,15 @@ import { truncateToWidth, visibleWidth, type EditorTheme } from "@mariozechner/p
 
 type ColorValue = ThemeColor | `#${string}`;
 type SemanticColor = "pi" | "model" | "path" | "gitDirty" | "gitClean" | "thinking" | "context" | "contextWarn" | "contextError" | "cost";
-type SegmentId = "pi" | "model" | "thinking" | "cost" | "path" | "git" | "context_pct" | "extension_statuses";
+type SegmentId = "pi" | "model" | "thinking" | "cost" | "path" | "git" | "cache_total" | "context_pct" | "extension_statuses";
 type ColorScheme = Partial<Record<SemanticColor, ColorValue>>;
 type GitStatus = { branch: string | null; staged: number; unstaged: number; untracked: number };
 type SegmentContext = {
-  model: { id: string; name?: string; reasoning?: boolean; contextWindow?: number } | undefined;
+  model: { id: string; name?: string; provider?: string; providerName?: string; reasoning?: boolean; contextWindow?: number } | undefined;
   cwd: string;
   thinkingLevel: string;
   cost: number;
+  cacheTotal: number;
   contextPercent: number;
   contextUsed: number;
   contextWindow: number;
@@ -48,10 +49,11 @@ const ICONS = {
   folder: "\uF115",
   branch: "\uF126",
   git: "\uF1D3",
+  cache: "\uF1C0",
 } as const;
 
 const SEG_LEFT: SegmentId[] = ["pi", "model", "thinking", "cost"];
-const SEG_RIGHT: SegmentId[] = ["path", "git", "context_pct"];
+const SEG_RIGHT: SegmentId[] = ["path", "git", "cache_total", "context_pct"];
 const SEG_SECONDARY: SegmentId[] = ["extension_statuses"];
 const THINK_LABELS: Record<string, string> = { off: "off", minimal: "min", low: "low", medium: "med", high: "high", xhigh: "xhigh" };
 const GIT_BRANCH_PATTERNS = [
@@ -110,6 +112,35 @@ function formatTokens(n: number): string {
   if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
   if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   return `${Math.round(n / 1_000_000)}M`;
+}
+
+function cleanLabel(value: string | undefined): string | undefined {
+  const cleaned = value?.replace(/\s+/g, " ").trim();
+  return cleaned || undefined;
+}
+
+function humanizeProviderId(provider: string | undefined): string | undefined {
+  const cleaned = cleanLabel(provider);
+  if (!cleaned) return undefined;
+  return cleaned
+    .split(/([\-_/]+)/)
+    .map((part) => (/^[\-_/]+$/.test(part) ? part : part[0]!.toUpperCase() + part.slice(1)))
+    .join("");
+}
+
+function getProviderName(modelRegistry: { authStorage?: { getOAuthProviders?: () => Array<{ id: string; name?: string }> } } | undefined, provider: string | undefined): string | undefined {
+  const cleanedProvider = cleanLabel(provider);
+  if (!cleanedProvider) return undefined;
+  const oauthProviderName = cleanLabel(modelRegistry?.authStorage?.getOAuthProviders?.().find((entry) => entry.id === cleanedProvider)?.name);
+  const compactOauthName = cleanLabel(oauthProviderName?.split("(")[0]);
+  if (compactOauthName && !compactOauthName.includes("/")) return compactOauthName;
+  return humanizeProviderId(cleanedProvider);
+}
+
+function formatModelLabel(model: SegmentContext["model"]): string {
+  const modelName = cleanLabel(model?.name) || cleanLabel(model?.id) || "no-model";
+  const providerName = cleanLabel(model?.providerName);
+  return providerName ? `${modelName} (${providerName})` : modelName;
 }
 
 function getDisplayPath(cwd: string): string {
@@ -220,10 +251,8 @@ function renderSegment(id: SegmentId, ctx: SegmentContext) {
   switch (id) {
     case "pi":
       return { content: color(ctx, "pi", `${ICONS.pi} `), visible: true };
-    case "model": {
-      const modelName = (ctx.model?.name || ctx.model?.id || "no-model").replace(/^Claude /, "");
-      return { content: color(ctx, "model", withIcon(ICONS.model, modelName)), visible: true };
-    }
+    case "model":
+      return { content: color(ctx, "model", withIcon(ICONS.model, formatModelLabel(ctx.model))), visible: true };
     case "thinking":
       return { content: color(ctx, "thinking", withIcon(ICONS.thinking, THINK_LABELS[ctx.thinkingLevel] || ctx.thinkingLevel)), visible: true };
     case "cost":
@@ -245,6 +274,8 @@ function renderSegment(id: SegmentId, ctx: SegmentContext) {
       else if (indicators.length) content += ` ${indicators.join(" ")}`;
       return content ? { content, visible: true } : EMPTY_SEGMENT;
     }
+    case "cache_total":
+      return ctx.cacheTotal ? { content: color(ctx, "context", withIcon(ICONS.cache, formatTokens(ctx.cacheTotal))), visible: true } : EMPTY_SEGMENT;
     case "context_pct": {
       const text = `${formatTokens(ctx.contextUsed)}/${formatTokens(ctx.contextWindow)} (${ctx.contextPercent.toFixed(1)}%)`;
       const semantic = ctx.contextPercent > 90 ? "contextError" : ctx.contextPercent > 70 ? "contextWarn" : "context";
@@ -338,6 +369,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   function buildSegmentContext(ctx: any, theme: Theme): SegmentContext {
     let cost = 0;
+    let cacheTotal = 0;
     let lastUsage: any;
     let thinkingLevel = "off";
 
@@ -347,6 +379,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       const message = entry.message;
       if (message.stopReason === "error" || message.stopReason === "aborted" || !message.usage) continue;
       cost += message.usage.cost?.total ?? 0;
+      cacheTotal += (message.usage.cacheRead ?? 0) + (message.usage.cacheWrite ?? 0);
       lastUsage = message.usage;
     }
 
@@ -359,10 +392,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     const contextPercent = typeof usage?.percent === "number" ? usage.percent : contextWindow > 0 ? (contextUsed / contextWindow) * 100 : 0;
 
     return {
-      model: ctx.model,
+      model: ctx.model ? { ...ctx.model, providerName: getProviderName(ctx.modelRegistry, ctx.model.provider) } : undefined,
       cwd: ctx.cwd,
       thinkingLevel: thinkingLevel !== "off" ? thinkingLevel : pi.getThinkingLevel(),
       cost,
+      cacheTotal,
       contextPercent,
       contextUsed,
       contextWindow,
