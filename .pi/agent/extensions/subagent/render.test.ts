@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 
 class Text {
   constructor(
@@ -29,13 +29,13 @@ class Markdown {
   ) {}
 }
 
-mock.module("@mariozechner/pi-ai", () => ({
+vi.mock("@mariozechner/pi-ai", () => ({
   getModels() {
     return [{ id: "gpt-5.4", name: "OpenAI: GPT-5.4" }];
   },
 }));
 
-mock.module("@mariozechner/pi-coding-agent", () => ({
+vi.mock("@mariozechner/pi-coding-agent", () => ({
   getMarkdownTheme() {
     return { name: "mock-markdown-theme" };
   },
@@ -50,7 +50,7 @@ mock.module("@mariozechner/pi-coding-agent", () => ({
   },
 }));
 
-mock.module("@mariozechner/pi-tui", () => ({
+vi.mock("@mariozechner/pi-tui", () => ({
   Container,
   Markdown,
   Spacer,
@@ -63,8 +63,7 @@ mock.module("@mariozechner/pi-tui", () => ({
   },
 }));
 
-// @ts-expect-error test-only query string keeps this import isolated from other test modules
-const { renderResult } = await import("./render.ts?render-test");
+const { renderResult } = await import("./render/details.ts");
 const { emptyUsage } = await import("./types.ts");
 
 function makeTheme() {
@@ -101,7 +100,7 @@ function makeResult(overrides: Record<string, any> = {}) {
   };
 }
 
-function makeDetails(results: any[], mode: "single" | "parallel" = "single") {
+function makeDetails(results: any[], mode: "single" | "parallel" = "parallel") {
   return {
     mode,
     delegationMode: "spawn" as const,
@@ -228,7 +227,7 @@ describe("subagent render", () => {
     const rendered = renderResult(
       makeToolResult(makeDetails([
         makeResult({
-          task: "  Investigate\n\nsubagent render.ts\tpreview handling  ",
+          task: "  Investigate\n\nsubagent render preview handling  ",
           messages: [],
         }),
       ])),
@@ -254,7 +253,7 @@ describe("subagent render", () => {
             requested: ["code-review", "missing-skill"],
             loaded: ["code-review"],
             missing: ["missing-skill"],
-            warnings: ["Skill not found for agent \"worker\": missing-skill"],
+            warnings: ['Skill not found for agent "worker": missing-skill'],
           },
           messages: [
             {
@@ -286,7 +285,7 @@ describe("subagent render", () => {
     expect(text).toContain("requested: code-review, missing-skill");
     expect(text).toContain("loaded: code-review");
     expect(text).toContain("missing: missing-skill");
-    expect(text).toContain("Skill not found for agent \"worker\": missing-skill");
+    expect(text).toContain('Skill not found for agent "worker": missing-skill');
     expect(text).toContain("─── Tool Trace ───");
     expect(text).toContain("read src/index.ts");
     expect(text).toContain("─── Output ───");

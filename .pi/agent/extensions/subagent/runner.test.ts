@@ -5,13 +5,13 @@ import {
   describe,
   expect,
   it,
-  mock,
-} from "bun:test";
+  vi,
+} from "vitest";
 import { EventEmitter } from "node:events";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentConfig } from "./agents.ts";
+import type { AgentConfig } from "./agents/types.ts";
 import { getFinalOutput } from "./types.ts";
 
 type SpawnCall = {
@@ -70,40 +70,38 @@ class MockChildProcess extends EventEmitter {
   }
 }
 
-let spawnImpl:
-  | ((
-      command: string,
-      args: string[],
-      options: SpawnCall["options"],
-    ) => MockChildProcess)
-  | undefined;
-const spawnCalls: SpawnCall[] = [];
-const actualChildProcess = await import("node:child_process");
-
-const mockSkills: SkillFixture[] = [];
-const loadSkillsCwds: string[] = [];
-
-mock.module("node:child_process", () => ({
-  ...actualChildProcess,
-  spawn(command: string, args: string[], options: SpawnCall["options"]) {
-    spawnCalls.push({ command, args, options });
-    if (!spawnImpl) throw new Error("spawnImpl not configured for test");
-    return spawnImpl(command, args, options);
-  },
+const state = vi.hoisted(() => ({
+  spawnImpl: undefined as
+    | ((command: string, args: string[], options: SpawnCall["options"]) => MockChildProcess)
+    | undefined,
+  spawnCalls: [] as SpawnCall[],
+  mockSkills: [] as SkillFixture[],
+  loadSkillsCwds: [] as string[],
 }));
 
-mock.module("@mariozechner/pi-coding-agent", () => ({
+vi.mock("node:child_process", async (importActual) => {
+  const actual = await importActual<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawn(command: string, args: string[], options: SpawnCall["options"]) {
+      state.spawnCalls.push({ command, args, options });
+      if (!state.spawnImpl) throw new Error("spawnImpl not configured for test");
+      return state.spawnImpl(command, args, options);
+    },
+  };
+});
+
+vi.mock("@mariozechner/pi-coding-agent", () => ({
   loadSkills({ cwd }: { cwd: string }) {
-    loadSkillsCwds.push(cwd);
-    return { skills: [...mockSkills] };
+    state.loadSkillsCwds.push(cwd);
+    return { skills: [...state.mockSkills] };
   },
   stripFrontmatter(content: string) {
     return content.replace(/^---[\s\S]*?---\s*/, "");
   },
 }));
 
-// @ts-expect-error test-only query string keeps this import isolated from other test modules
-const { mapConcurrent, runAgent } = await import("./runner.ts?runner-test");
+const { mapConcurrent, runAgent } = await import("./runner.ts");
 
 const testRootDir = fs.mkdtempSync(
   path.join(os.tmpdir(), "pi-subagent-runner-test-"),
@@ -119,7 +117,7 @@ const originalArgv1 = process.argv[1];
 
 function makeDetails(results: any[]) {
   return {
-    mode: "single" as const,
+    mode: "parallel" as const,
     delegationMode: "spawn" as const,
     projectAgentsDir: null,
     results,
@@ -191,17 +189,17 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  spawnCalls.length = 0;
-  loadSkillsCwds.length = 0;
-  mockSkills.length = 0;
-  spawnImpl = undefined;
+  state.spawnCalls.length = 0;
+  state.loadSkillsCwds.length = 0;
+  state.mockSkills.length = 0;
+  state.spawnImpl = undefined;
 });
 
 describe("runAgent", () => {
   it("completes successfully, propagates child env vars, and inherits default extensions when omitted", async () => {
     const proc = new MockChildProcess();
 
-    spawnImpl = () => {
+    state.spawnImpl = () => {
       setTimeout(() => {
         emitJson(proc, {
           type: "message_end",
@@ -232,20 +230,20 @@ describe("runAgent", () => {
     expect(result.errorMessage).toBeUndefined();
     expect(proc.killCalls).toHaveLength(0);
     expect(getFinalOutput(result.messages)).toBe("finished normally");
-    expect(spawnCalls).toHaveLength(1);
-    expect(spawnCalls[0]?.options.cwd).toBe(workDir);
-    expect(spawnCalls[0]?.options.env?.PI_TASK_DEPTH).toBe("1");
-    expect(spawnCalls[0]?.options.env?.PI_TASK_MAX_DEPTH).toBe("1");
-    expect(spawnCalls[0]?.options.env?.PI_OFFLINE).toBe("1");
+    expect(state.spawnCalls).toHaveLength(1);
+    expect(state.spawnCalls[0]?.options.cwd).toBe(workDir);
+    expect(state.spawnCalls[0]?.options.env?.PI_TASK_DEPTH).toBe("1");
+    expect(state.spawnCalls[0]?.options.env?.PI_TASK_MAX_DEPTH).toBe("1");
+    expect(state.spawnCalls[0]?.options.env?.PI_OFFLINE).toBe("1");
 
     if (process.platform === "win32") {
-      expect(spawnCalls[0]?.command).toBe(process.execPath);
-      expect(spawnCalls[0]?.args[0]).toBe(cliStubPath);
+      expect(state.spawnCalls[0]?.command).toBe(process.execPath);
+      expect(state.spawnCalls[0]?.args[0]).toBe(cliStubPath);
     } else {
-      expect(spawnCalls[0]?.command).toBe("pi");
+      expect(state.spawnCalls[0]?.command).toBe("pi");
     }
 
-    const piArgs = getPiArgs(spawnCalls[0]!);
+    const piArgs = getPiArgs(state.spawnCalls[0]!);
     expect(piArgs).toContain("--no-session");
     expect(piArgs).not.toContain("--no-extensions");
     expect(piArgs).not.toContain("-e");
@@ -255,7 +253,7 @@ describe("runAgent", () => {
   it("treats explicit empty extensions as load none", async () => {
     const proc = new MockChildProcess();
 
-    spawnImpl = () => {
+    state.spawnImpl = () => {
       setTimeout(() => {
         emitJson(proc, {
           type: "message_end",
@@ -282,7 +280,7 @@ describe("runAgent", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    const piArgs = getPiArgs(spawnCalls[0]!);
+    const piArgs = getPiArgs(state.spawnCalls[0]!);
     expect(piArgs).toContain("--no-extensions");
     expect(piArgs).not.toContain("-e");
   });
@@ -290,7 +288,7 @@ describe("runAgent", () => {
   it("forwards explicit extensions as an override list", async () => {
     const proc = new MockChildProcess();
 
-    spawnImpl = () => {
+    state.spawnImpl = () => {
       setTimeout(() => {
         emitJson(proc, {
           type: "message_end",
@@ -317,7 +315,7 @@ describe("runAgent", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    const piArgs = getPiArgs(spawnCalls[0]!);
+    const piArgs = getPiArgs(state.spawnCalls[0]!);
     expect(piArgs).toContain("--no-extensions");
     expect(piArgs).toEqual(
       expect.arrayContaining([
@@ -327,6 +325,43 @@ describe("runAgent", () => {
         "read-map",
       ]),
     );
+  });
+
+  it("prefers call-time extension overrides from task settings over agent frontmatter", async () => {
+    const proc = new MockChildProcess();
+
+    state.spawnImpl = () => {
+      setTimeout(() => {
+        emitJson(proc, {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "settings override" }],
+          },
+        });
+        proc.close(0);
+      }, 5);
+      return proc;
+    };
+
+    const result = await runAgent({
+      cwd: workDir,
+      agents: [makeAgent({ extensions: ["rtk", "read-map"] })],
+      agentName: "worker",
+      task: "Do the thing",
+      summary: "Settings extension override",
+      overrideExtensions: ["only-this"],
+      delegationMode: "spawn",
+      parentDepth: 0,
+      maxDepth: 1,
+      makeDetails,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const piArgs = getPiArgs(state.spawnCalls[0]!);
+    expect(piArgs).toContain("--no-extensions");
+    expect(piArgs).toEqual(expect.arrayContaining(["-e", "only-this"]));
+    expect(piArgs).not.toEqual(expect.arrayContaining(["read-map"]));
   });
 
   it("returns an error for an unknown agent without spawning a process", async () => {
@@ -346,7 +381,7 @@ describe("runAgent", () => {
     expect(result.agentSource).toBe("unknown");
     expect(result.failureCategory).toBe("validation");
     expect(result.stderr).toContain('Unknown agent: "missing-agent"');
-    expect(spawnCalls).toHaveLength(0);
+    expect(state.spawnCalls).toHaveLength(0);
   });
 
   it("rejects fork mode when the parent session snapshot is missing", async () => {
@@ -366,14 +401,14 @@ describe("runAgent", () => {
     expect(result.stopReason).toBe("error");
     expect(result.failureCategory).toBe("validation");
     expect(result.errorMessage).toContain("missing parent session snapshot context");
-    expect(spawnCalls).toHaveLength(0);
+    expect(state.spawnCalls).toHaveLength(0);
   });
 
   it("parses streamed session, tool, tool-result, and assistant events", async () => {
     const proc = new MockChildProcess();
     const updates: any[] = [];
 
-    spawnImpl = () => {
+    state.spawnImpl = () => {
       setTimeout(() => {
         emitJson(proc, { type: "session", id: "session-12345678", name: "Runner smoke test session" });
         emitJson(proc, {
@@ -462,7 +497,7 @@ describe("runAgent", () => {
   it("captures startup spawn errors", async () => {
     const proc = new MockChildProcess();
 
-    spawnImpl = () => {
+    state.spawnImpl = () => {
       setTimeout(() => proc.fail(new Error("boom")), 0);
       return proc;
     };
@@ -489,7 +524,7 @@ describe("runAgent", () => {
   it("captures child stderr and preserves non-zero exit codes", async () => {
     const proc = new MockChildProcess();
 
-    spawnImpl = () => {
+    state.spawnImpl = () => {
       setTimeout(() => {
         proc.emitStderr("warning on stderr\n");
         proc.close(7);
@@ -516,7 +551,7 @@ describe("runAgent", () => {
   });
 
   it("loads skills, records skill metadata, and uses task cwd for skill lookup", async () => {
-    mockSkills.push({
+    state.mockSkills.push({
       name: "test-skill",
       filePath: skillFilePath,
       baseDir: skillDir,
@@ -525,7 +560,7 @@ describe("runAgent", () => {
     const proc = new MockChildProcess();
     let promptArg = "";
 
-    spawnImpl = (_command, args) => {
+    state.spawnImpl = (_command, args) => {
       promptArg = getPiArgs({ command: "", args, options: {} }).at(-1) ?? "";
       setTimeout(() => {
         emitJson(proc, {
@@ -543,10 +578,11 @@ describe("runAgent", () => {
     const result = await runAgent({
       cwd: workDir,
       taskCwd,
-      agents: [makeAgent({ skills: ["test-skill", "missing-skill"] })],
+      agents: [makeAgent({ skills: ["frontmatter-skill"] })],
       agentName: "worker",
       task: "Use the skill",
       summary: "Skill load",
+      overrideSkills: ["test-skill", "missing-skill"],
       delegationMode: "spawn",
       parentDepth: 0,
       maxDepth: 1,
@@ -554,7 +590,7 @@ describe("runAgent", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(loadSkillsCwds).toEqual([taskCwd]);
+    expect(state.loadSkillsCwds).toEqual([taskCwd]);
     expect(result.skillLoad?.lookupCwd).toBe(taskCwd);
     expect(result.skillLoad?.requested).toEqual(["test-skill", "missing-skill"]);
     expect(result.skillLoad?.loaded).toEqual(["test-skill"]);
@@ -564,7 +600,8 @@ describe("runAgent", () => {
     expect(promptArg).toContain('<skill name="test-skill"');
     expect(promptArg).toContain("Use this skill carefully.");
     expect(promptArg).toContain("Task: Use the skill");
-    expect(spawnCalls[0]?.options.cwd).toBe(taskCwd);
+    expect(promptArg).not.toContain("frontmatter-skill");
+    expect(state.spawnCalls[0]?.options.cwd).toBe(taskCwd);
   });
 
   it("creates and cleans temp files for system prompt and fork session", async () => {
@@ -574,7 +611,7 @@ describe("runAgent", () => {
     let promptContents = "";
     let sessionContents = "";
 
-    spawnImpl = (_command, args) => {
+    state.spawnImpl = (_command, args) => {
       const piArgs = getPiArgs({ command: "", args, options: {} });
       promptPath = getFlagValue(piArgs, "--append-system-prompt");
       sessionPath = getFlagValue(piArgs, "--session");
@@ -626,7 +663,7 @@ describe("runAgent", () => {
       setTimeout(() => proc.close(130), 0);
     };
 
-    spawnImpl = () => proc;
+    state.spawnImpl = () => proc;
 
     const controller = new AbortController();
     const resultPromise = runAgent({
@@ -655,7 +692,7 @@ describe("runAgent", () => {
   it("keeps child-reported aborted stops classified as abort failures", async () => {
     const proc = new MockChildProcess();
 
-    spawnImpl = () => {
+    state.spawnImpl = () => {
       setTimeout(() => {
         emitJson(proc, {
           type: "message_end",
@@ -692,7 +729,7 @@ describe("runAgent", () => {
   it("classifies signaled child exits as abort failures instead of successes", async () => {
     const proc = new MockChildProcess();
 
-    spawnImpl = () => {
+    state.spawnImpl = () => {
       setTimeout(() => proc.closeWithSignal("SIGTERM"), 5);
       return proc;
     };
@@ -718,7 +755,7 @@ describe("runAgent", () => {
   it("uses signal-specific exit codes for signaled child exits", async () => {
     const proc = new MockChildProcess();
 
-    spawnImpl = () => {
+    state.spawnImpl = () => {
       setTimeout(() => proc.closeWithSignal("SIGKILL"), 5);
       return proc;
     };

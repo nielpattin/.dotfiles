@@ -111,9 +111,12 @@ export function getFailureCategory(r: SingleResult): FailureCategory | undefined
 		errorText.includes("Unknown agent:") ||
 		errorText.includes("missing parent session snapshot context") ||
 		errorText.includes("Invalid mode") ||
-		errorText.includes("Invalid parallel task parameters") ||
-		errorText.includes("Invalid single-task parameters") ||
-		errorText.includes("Provide exactly one invocation shape")
+		errorText.includes("Legacy `tasks` payload") ||
+		errorText.includes("Top-level `{ agent, summary, task }") ||
+		errorText.includes("requires non-empty `agent`, `summary`, and `task`") ||
+		errorText.includes("requires non-empty `operations`") ||
+		errorText.includes("requires `operation`") ||
+		errorText.includes("is not allowed when mode")
 	) {
 		return "validation";
 	}
