@@ -20,6 +20,7 @@ Rules:
 - Always output something meaningful.`;
 
 const PREFERRED_MODEL_BY_PROVIDER: Record<string, string> = {
+  "openai-lb": "gpt-5.1-codex-mini",
   "openai-codex": "gpt-5.1-codex-mini",
   "google-gemini-cli": "gemini-2.5-flash",
 };
