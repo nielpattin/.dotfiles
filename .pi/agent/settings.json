@@ -8,43 +8,45 @@
   "theme": "catppuccin-mocha",
   "transport": "sse",
   "packages": [
-    "git:https://github.com/calesennett/pi-codex-fast",
     "npm:pi-mcporter",
     "npm:pi-rtk-noemoji"
   ],
-  "skills": [
-    "-..\\..\\.agents\\skills\\prd\\SKILL.md",
-    "-..\\..\\.agents\\skills\\prd-task\\SKILL.md",
-    "-..\\..\\.agents\\skills\\playwright-expert\\SKILL.md",
-    "-skills\\web-search\\SKILL.md",
-    "-skills\\visit-webpage\\SKILL.md",
-    "-..\\..\\.agents\\skills\\create-rule\\SKILL.md",
-    "+..\\..\\.agents\\skills\\git-expert\\SKILL.md",
-    "-..\\..\\.agents\\skills\\landing-page\\SKILL.md",
-    "-..\\..\\.agents\\skills\\meme-factory\\SKILL.md",
-    "-..\\..\\.agents\\skills\\roadmap\\SKILL.md",
-    "-..\\..\\.agents\\skills\\commit-message-generator\\SKILL.md"
-  ],
   "extensions": [
-    "-extensions\\command-palette\\index.ts",
-    "-extensions\\figma-start.ts",
-    "-extensions\\handoff\\index.ts",
-    "-extensions\\prompt-stash.ts",
-    "+extensions\\smart-sessions\\index.ts",
-    "+extensions\\agents-discovery\\index.ts",
-    "+extensions\\image-preview\\index.ts",
-    "+extensions\\session-query\\index.ts",
-    "+extensions\\multicodex.ts",
-    "+extensions\\notification\\index.ts",
-    "+extensions\\powerline-footer\\index.ts",
-    "+extensions\\tab-status\\index.ts",
     "-extensions\\theme-cycle\\index.ts",
-    "+extensions\\tools\\index.ts",
+    "-extensions\\prompt-stash.ts",
+    "-extensions\\handoff\\index.ts",
+    "+extensions\\context-scope.ts",
+    "-extensions\\command-palette\\index.ts",
     "-extensions\\usage-extension\\index.ts",
-    "-extensions\\you-are-right-killer.ts",
-    "+extensions\\working-vibes\\index.ts",
     "-extensions\\welcome\\index.ts",
-    "+extensions\\subagent\\index.ts"
+    "+extensions\\you-are-right-killer.ts",
+    "+extensions\\working-vibes\\index.ts"
+  ],
+  "skills": [
+    "+skills\\drawio-diagrams-enhanced\\SKILL.md",
+    "-skills\\creating-pi-extensions\\SKILL.md",
+    "-skills\\prd\\SKILL.md",
+    "-skills\\prd-task\\SKILL.md",
+    "+skills\\resolve-conflicts\\SKILL.md",
+    "-skills\\roadmap\\SKILL.md",
+    "-skills\\tracer-bullet\\SKILL.md",
+    "-skills\\update-pi\\SKILL.md",
+    "-skills\\visit-webpage\\SKILL.md",
+    "-skills\\web-search\\SKILL.md"
+  ],
+  "themes": [
+    "-themes\\cyberpunk.json",
+    "-themes\\dracula.json",
+    "-themes\\everforest.json",
+    "-themes\\midnight-ocean.json",
+    "-themes\\nord.json",
+    "-themes\\ocean-breeze.json",
+    "-themes\\orng.json",
+    "-themes\\rose-pine.json",
+    "-themes\\synthwave.json",
+    "-themes\\tokyo-night.json",
+    "-themes\\terminal.json",
+    "-themes\\gruvbox.json"
   ],
   "workingVibe": "game-dev",
   "images": {
@@ -52,21 +54,11 @@
   },
   "workingVibeMode": "file",
   "workingVibeRefreshInterval": 5,
-  "themes": [
-    "-themes\\dracula.json",
-    "-themes\\everforest.json",
-    "-themes\\gruvbox.json",
-    "-themes\\midnight-ocean.json",
-    "-themes\\nord.json",
-    "-themes\\ocean-breeze.json",
-    "-themes\\rose-pine.json",
-    "-themes\\synthwave.json",
-    "+themes\\tokyo-night.json"
-  ],
   "quietStartup": false,
   "doubleEscapeAction": "none",
   "treeFilterMode": "user-only",
-  "pi-codex-fast": {
-    "enabled": false
-  }
+  "enabledModels": [
+    "openai-codex/gpt-5.3-codex",
+    "openai-codex/gpt-5.4"
+  ]
 }
