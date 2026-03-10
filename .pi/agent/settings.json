@@ -33,7 +33,7 @@
     "+extensions\\smart-sessions\\index.ts",
     "+extensions\\agents-discovery\\index.ts",
     "+extensions\\image-preview\\index.ts",
-    "-extensions\\session-query\\index.ts",
+    "+extensions\\session-query\\index.ts",
     "+extensions\\multicodex.ts",
     "+extensions\\notification\\index.ts",
     "+extensions\\powerline-footer\\index.ts",
@@ -68,9 +68,5 @@
   "treeFilterMode": "user-only",
   "pi-codex-fast": {
     "enabled": false
-  },
-  "enabledModels": [
-    "openai-codex/gpt-5.4",
-    "google-gemini-cli/gemini-3.1-pro-preview"
-  ]
+  }
 }

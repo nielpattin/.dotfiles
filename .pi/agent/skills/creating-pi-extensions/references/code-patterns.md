@@ -215,7 +215,7 @@ function saveConfig<T>(config: T): void {
 Use [`pi-extension-config`](https://github.com/zenobi-us/pi-extension-config) for type-safe, layered configuration.
 
 ```bash
-bun add pi-extension-config
+pnpm add pi-extension-config
 ```
 
 **Config sources (highest priority first):**
