@@ -448,22 +448,19 @@ export default function powerlineFooter(pi: ExtensionAPI) {
             if (stripped && /^─{3,}/.test(stripped)) { bottomBorderIndex = i; break; }
           }
 
-          const promptPrefix = " \x1b[38;2;200;200;200m>\x1b[0m ";
-          const contPrefix = "   ";
           const border = (text: string) => editorTheme.borderColor(text);
           const { topContent } = getLayout(width, ctx.ui.theme);
           const result = [topContent];
 
-          const promptRow = (prefix: string, inner: string) => {
-            const innerWidth = Math.max(1, width - visibleWidth(prefix));
-            const clipped = truncateToWidth(inner, innerWidth, "");
-            return prefix + clipped + " ".repeat(Math.max(0, innerWidth - visibleWidth(clipped)));
+          const promptRow = (inner: string) => {
+            const clipped = truncateToWidth(inner, width, "");
+            return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
           };
           const borderRow = (line: string) => line + border("─".repeat(Math.max(0, width - visibleWidth(line))));
 
           result.push(borderRow(lines[0] || ""));
-          for (let i = 1; i < bottomBorderIndex; i++) result.push(promptRow(i === 1 ? promptPrefix : contPrefix, lines[i] || ""));
-          if (bottomBorderIndex === 1) result.push(promptRow(promptPrefix, ""));
+          for (let i = 1; i < bottomBorderIndex; i++) result.push(promptRow(lines[i] || ""));
+          if (bottomBorderIndex === 1) result.push(promptRow(""));
           result.push(borderRow(lines[bottomBorderIndex] || ""));
           for (let i = bottomBorderIndex + 1; i < lines.length; i++) result.push(lines[i] || "");
           return result;

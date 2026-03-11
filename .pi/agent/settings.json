@@ -9,7 +9,8 @@
   "transport": "sse",
   "packages": [
     "npm:pi-mcporter",
-    "npm:pi-rtk-noemoji"
+    "npm:pi-rtk-noemoji",
+    "git:https://github.com/calesennett/pi-codex-fast"
   ],
   "extensions": [
     "-extensions\\theme-cycle\\index.ts",
@@ -60,5 +61,8 @@
   "enabledModels": [
     "openai-codex/gpt-5.3-codex",
     "openai-codex/gpt-5.4"
-  ]
+  ],
+  "pi-codex-fast": {
+    "enabled": true
+  }
 }
