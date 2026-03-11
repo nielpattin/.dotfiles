@@ -90,6 +90,47 @@ function dot-pi {
     }
 }
 
+function dot-code {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$CodeArgs
+    )
+
+    $oldGitDir = $env:GIT_DIR
+    $oldWorkTree = $env:GIT_WORK_TREE
+    $oldLocks = $env:GIT_OPTIONAL_LOCKS
+
+    try {
+        $env:GIT_DIR = "$HOME\.dotfiles"
+        $env:GIT_WORK_TREE = "$HOME"
+        $env:GIT_OPTIONAL_LOCKS = "0"
+        Set-Location $HOME
+        & code @CodeArgs .
+    }
+    finally {
+        if ($null -eq $oldGitDir) {
+            Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:GIT_DIR = $oldGitDir
+        }
+
+        if ($null -eq $oldWorkTree) {
+            Remove-Item Env:GIT_WORK_TREE -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:GIT_WORK_TREE = $oldWorkTree
+        }
+
+        if ($null -eq $oldLocks) {
+            Remove-Item Env:GIT_OPTIONAL_LOCKS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:GIT_OPTIONAL_LOCKS = $oldLocks
+        }
+    }
+}
+
 function Get-PubIP { (Invoke-WebRequest http://ifconfig.me/ip).Content }
 
 function admin {
