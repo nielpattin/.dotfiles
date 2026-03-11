@@ -44,6 +44,7 @@ export type FailureCategory = "validation" | "startup" | "abort" | "runtime";
 
 /** Result of a single subagent invocation. */
 export interface SingleResult {
+	taskId?: string;
 	agent: string;
 	agentSource: "user" | "project" | "unknown";
 	task: string;
@@ -57,6 +58,7 @@ export interface SingleResult {
 	updatedAt: number;
 	sessionId?: string;
 	sessionName?: string;
+	taskFile?: string;
 	skillLoad?: SkillLoadInfo;
 	activeTool?: ToolActivity;
 	lastTool?: ToolActivity;

@@ -22,7 +22,7 @@ export function validatePublicOperation(raw: unknown, label: string):
   if (raw.extension !== undefined || raw.extensions !== undefined) {
     return {
       ok: false,
-      message: `${label} cannot include \`extension\` or \`extensions\`. Configure extensions in /task-config instead.`,
+      message: `${label} cannot include \`extension\` or \`extensions\`. Configure extensions in /agents instead.`,
     };
   }
 
@@ -90,7 +90,7 @@ export function validateTaskToolParams(raw: unknown):
   if (raw.extension !== undefined || raw.extensions !== undefined) {
     return {
       ok: false,
-      message: "`extension`/`extensions` are not allowed in task payloads. Configure extensions in /task-config.",
+      message: "`extension`/`extensions` are not allowed in task payloads. Configure extensions in /agents.",
     };
   }
 

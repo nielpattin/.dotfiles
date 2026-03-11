@@ -148,7 +148,7 @@ export class TaskConfigPanel {
     const row = (content = "") => `${th.fg("border", "│")}${pad(truncateToWidth(content, innerWidth))}${th.fg("border", "│")}`;
 
     lines.push(th.fg("border", `╭${"─".repeat(innerWidth)}╮`));
-    lines.push(row(` ${th.bold(th.fg("accent", "Task Config"))}`));
+    lines.push(row(` ${th.bold(th.fg("accent", "Agents"))}`));
 
     if (this.mode === "agent") {
       lines.push(row(` ${th.fg("dim", "Choose agent • Enter select • Esc close")}`));

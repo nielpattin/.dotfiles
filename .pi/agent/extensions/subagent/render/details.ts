@@ -26,6 +26,7 @@ import {
 	shortenPath,
 } from "./format.js";
 import { colorizeRgb, getCardAccent, type RenderTheme } from "./theme.js";
+import { SUBAGENT_FALLBACK_TEXT } from "../constants.js";
 
 export function renderCall(args: Record<string, any>, theme: RenderTheme): Text {
 	const prefix = theme.fg("toolTitle", theme.bold("Task")) + theme.fg("muted", " • ");
@@ -55,7 +56,7 @@ export function renderResult(
 	const details = result.details as SubagentDetails | undefined;
 	if (!details || details.results.length === 0) {
 		const first = result.content[0];
-		return new Text(first?.type === "text" && first.text ? first.text : "(no output)", 0, 0);
+		return new Text(first?.type === "text" && first.text ? first.text : SUBAGENT_FALLBACK_TEXT.noOutput, 0, 0);
 	}
 
 	const delegationMode = normalizeDelegationMode((details as Partial<SubagentDetails>).delegationMode);
@@ -63,7 +64,7 @@ export function renderResult(
 		const first = details.results[0];
 		if (!first) {
 			const firstContent = result.content[0];
-			return new Text(firstContent?.type === "text" && firstContent.text ? firstContent.text : "(no output)", 0, 0);
+			return new Text(firstContent?.type === "text" && firstContent.text ? firstContent.text : SUBAGENT_FALLBACK_TEXT.noOutput, 0, 0);
 		}
 		return renderSingleResult(first, delegationMode, expanded, theme);
 	}
@@ -119,7 +120,7 @@ function appendCommonDetails(container: Container, r: SingleResult, theme: Rende
 	container.addChild(new Spacer(1));
 	container.addChild(new Text(theme.fg("muted", "─── Tool Trace ───"), 0, 0));
 	if (toolCalls.length === 0) {
-		container.addChild(new Text(theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no tool calls)"), 0, 0));
+		container.addChild(new Text(theme.fg("muted", r.exitCode === -1 ? SUBAGENT_FALLBACK_TEXT.running : "(no tool calls)"), 0, 0));
 	} else {
 		container.addChild(new Text(renderDisplayItems(toolCalls, theme, undefined), 0, 0));
 	}
@@ -129,7 +130,7 @@ function appendCommonDetails(container: Container, r: SingleResult, theme: Rende
 	if (finalOutput) {
 		container.addChild(new Markdown(finalOutput, 0, 0, mdTheme));
 	} else {
-		container.addChild(new Text(theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)"), 0, 0));
+		container.addChild(new Text(theme.fg("muted", r.exitCode === -1 ? SUBAGENT_FALLBACK_TEXT.running : SUBAGENT_FALLBACK_TEXT.noOutput), 0, 0));
 	}
 
 	const usageStr = formatUsage(r.usage, r.model);

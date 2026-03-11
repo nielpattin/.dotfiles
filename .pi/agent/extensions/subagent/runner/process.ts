@@ -1,13 +1,11 @@
 import { spawn } from "node:child_process";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { SubagentDetails, SingleResult, FailureCategory } from "../types.js";
+import { TASK_ENV_NAMES } from "../constants.js";
 import { processJsonLine } from "./stream.js";
 import type { SpawnTarget } from "./spawntarget.js";
 
 const SIGKILL_TIMEOUT_MS = 5000;
-const TASK_DEPTH_ENV = "PI_TASK_DEPTH";
-const TASK_MAX_DEPTH_ENV = "PI_TASK_MAX_DEPTH";
-const PI_OFFLINE_ENV = "PI_OFFLINE";
 const ABORT_SIGNALS = new Set(["SIGINT", "SIGTERM", "SIGKILL"]);
 const SIGNAL_EXIT_CODES: Record<string, number> = {
   SIGHUP: 129,
@@ -82,9 +80,9 @@ export async function runChildProcess(
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
-        [TASK_DEPTH_ENV]: String(nextDepth),
-        [TASK_MAX_DEPTH_ENV]: String(propagatedMaxDepth),
-        [PI_OFFLINE_ENV]: "1",
+        [TASK_ENV_NAMES.depth]: String(nextDepth),
+        [TASK_ENV_NAMES.maxDepth]: String(propagatedMaxDepth),
+        [TASK_ENV_NAMES.offline]: "1",
       },
     });
 

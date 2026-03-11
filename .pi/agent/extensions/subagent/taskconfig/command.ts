@@ -5,7 +5,7 @@ import { discoverExtensionsForTaskConfig } from "./extensions.js";
 import { discoverSkillsForTaskConfig } from "./skills.js";
 import { TaskConfigPanel, type TaskConfigPanelResult } from "./panel.js";
 
-type TaskConfigCommandContext = Pick<ExtensionCommandContext, "cwd" | "hasUI" | "ui">;
+type AgentsCommandContext = Pick<ExtensionCommandContext, "cwd" | "hasUI" | "ui">;
 
 function splitCommaInput(value: string): string[] {
   return Array.from(new Set(
@@ -16,11 +16,11 @@ function splitCommaInput(value: string): string[] {
   ));
 }
 
-export async function openTaskConfigPanel(
-  ctx: TaskConfigCommandContext,
+export async function openAgentsPanel(
+  ctx: AgentsCommandContext,
 ): Promise<void> {
   if (!ctx.hasUI) {
-    ctx.ui.notify("/task-config requires interactive UI.", "error");
+    ctx.ui.notify("/agents requires interactive UI.", "error");
     return;
   }
 
@@ -60,7 +60,7 @@ export async function openTaskConfigPanel(
       defaultSkills: null,
       enabledExtensions: null,
     });
-    ctx.ui.notify(`Cleared task settings for ${result.agentName}.`, "info");
+    ctx.ui.notify(`Cleared agent settings for ${result.agentName}.`, "info");
     return;
   }
 
@@ -83,14 +83,14 @@ export async function openTaskConfigPanel(
     });
   }
 
-  ctx.ui.notify(`Saved task settings for ${result.agentName}.`, "info");
+  ctx.ui.notify(`Saved agent settings for ${result.agentName}.`, "info");
 }
 
-export function registerTaskConfigCommand(pi: ExtensionAPI): void {
-  pi.registerCommand("task-config", {
-    description: "Configure per-agent task defaults (skills, extensions).",
+export function registerAgentsCommand(pi: ExtensionAPI): void {
+  pi.registerCommand("agents", {
+    description: "Configure per-agent defaults (skills, extensions).",
     handler: async (_args: string, ctx: ExtensionCommandContext) => {
-      await openTaskConfigPanel(ctx);
+      await openAgentsPanel(ctx);
     },
   });
 }

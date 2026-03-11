@@ -11,9 +11,11 @@
 
 import { type ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "./agents/types.js";
+import { SUBAGENT_TOOL_NAME, TASK_FLAG_NAMES } from "./constants.js";
 import { discoverAgents } from "./agents/discover.js";
 import { renderCall, renderResult } from "./render/details.js";
-import { registerTaskConfigCommand } from "./taskconfig/command.js";
+import { registerAgentsCommand } from "./taskconfig/command.js";
+import { registerTasksCommand } from "./tasks/command.js";
 import { TaskParams } from "./tasktool/schema.js";
 import { resolveDelegationDepthConfig, resolveParallelExecutionConfig } from "./tasktool/settings.js";
 import { validateTaskToolParams } from "./tasktool/validate.js";
@@ -22,6 +24,7 @@ import {
   createDelegatedRunsWidget,
   type DelegatedRunsWidgetContext,
 } from "./ui/runswidget.js";
+import { createTaskStore } from "./ui/taskstore.js";
 import {
   type SingleResult,
   type SubagentDetails,
@@ -45,20 +48,20 @@ function formatAgentNames(agents: AgentConfig[]): string {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.registerFlag("task-max-depth", {
+  pi.registerFlag(TASK_FLAG_NAMES.maxDepth, {
     description: "Maximum allowed task delegation depth (default: 1).",
     type: "string",
   });
-  pi.registerFlag("task-max-parallel", {
+  pi.registerFlag(TASK_FLAG_NAMES.maxParallel, {
     description: "Maximum number of tasks allowed in one parallel batch (default: 8).",
     type: "string",
   });
-  pi.registerFlag("task-concurrency", {
+  pi.registerFlag(TASK_FLAG_NAMES.concurrency, {
     description: "Maximum number of child agents run at once in parallel mode (default: 4).",
     type: "string",
   });
 
-  registerTaskConfigCommand(pi);
+  registerAgentsCommand(pi);
 
   const depthConfig = resolveDelegationDepthConfig(pi);
   const parallelConfig = resolveParallelExecutionConfig(pi);
@@ -67,6 +70,9 @@ export default function (pi: ExtensionAPI) {
 
   let discoveredAgents: AgentConfig[] = [];
   const delegatedRunsWidget = createDelegatedRunsWidget();
+  const taskStore = createTaskStore();
+
+  registerTasksCommand(pi, taskStore);
 
   function refreshDiscoveredAgents(cwd: string): AgentConfig[] {
     const discovery = discoverAgents(cwd, "both");
@@ -74,9 +80,21 @@ export default function (pi: ExtensionAPI) {
     return discoveredAgents;
   }
 
+  const hydrateTasksFromCurrentBranch = (ctx: { sessionManager?: { getBranch?: () => unknown[]; getSessionFile?: () => string | undefined } }) => {
+    taskStore.setParentSessionFile(ctx.sessionManager?.getSessionFile?.());
+    const branchEntries = ctx.sessionManager?.getBranch?.();
+    if (Array.isArray(branchEntries)) {
+      taskStore.hydrateFromBranch(branchEntries);
+    } else {
+      taskStore.clear();
+    }
+  };
+
   pi.on("session_start", async (_event, ctx) => {
     if (!canDelegate) return;
 
+    // session_start fires on initial load, including reopening an existing session.
+    hydrateTasksFromCurrentBranch(ctx);
     delegatedRunsWidget.handleSessionStart(ctx as DelegatedRunsWidgetContext);
 
     const agents = refreshDiscoveredAgents(ctx.cwd);
@@ -90,6 +108,14 @@ export default function (pi: ExtensionAPI) {
         "info",
       );
     }
+  });
+
+  pi.on("session_switch", async (_event, ctx) => {
+    if (!canDelegate) return;
+
+    hydrateTasksFromCurrentBranch(ctx);
+    delegatedRunsWidget.handleSessionStart(ctx as DelegatedRunsWidgetContext);
+    refreshDiscoveredAgents(ctx.cwd);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
@@ -133,18 +159,19 @@ Rules:
 - \`delegationMode\` is optional per operation and must be \`spawn\` or \`fork\` (defaults to \`spawn\`)
 - payload \`skills\`, \`extension\`, and \`extensions\` are rejected
 
-Use \`/task-config\` for per-agent defaults like extensions and default skills.
+Use \`/agents\` for per-agent defaults like extensions and default skills, and \`/tasks\` to inspect delegated task sessions.
 `,
     };
   });
 
   pi.on("session_shutdown", async () => {
+    taskStore.clear();
     delegatedRunsWidget.handleSessionShutdown();
   });
 
   if (canDelegate) {
     pi.registerTool({
-      name: "task",
+      name: SUBAGENT_TOOL_NAME,
       label: "Task",
       description: [
         "Delegate work to specialized task agents running in isolated pi processes.",
@@ -162,11 +189,12 @@ Use \`/task-config\` for per-agent defaults like extensions and default skills.
         "  - delegationMode is optional per operation: \"spawn\" | \"fork\" (defaults to \"spawn\")",
         "  - skills / extension / extensions are rejected in payload",
         "",
-        "Use /task-config for per-agent defaults (skills, extensions).",
+        "Use /agents for per-agent defaults (skills, extensions).",
       ].join("\n"),
       parameters: TaskParams,
 
       async execute(toolCallId, params, signal, onUpdate, ctx) {
+        taskStore.setParentSessionFile(ctx.sessionManager?.getSessionFile?.());
         const discovery = discoverAgents(ctx.cwd, "both");
         const { agents } = discovery;
         const validated = validateTaskToolParams(params);
@@ -200,6 +228,8 @@ Use \`/task-config\` for per-agent defaults like extensions and default skills.
           maxDepth,
           upsertDelegatedRun: delegatedRunsWidget.upsertRun,
           syncDelegatedRunWithResult: delegatedRunsWidget.syncRunWithResult,
+          upsertTask: taskStore.upsertTask,
+          syncTaskWithResult: taskStore.syncTaskWithResult,
         });
       },
 

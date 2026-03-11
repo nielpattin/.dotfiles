@@ -1,4 +1,4 @@
-import { SUBAGENT_UI_REFRESH_MS } from "../constants.js";
+import { SUBAGENT_FALLBACK_TEXT, SUBAGENT_UI_REFRESH_MS } from "../constants.js";
 import type { AgentConfig } from "../agents/types.js";
 import { mapConcurrent, runAgent } from "../runner.js";
 import {
@@ -57,6 +57,33 @@ export interface ExecuteParallelParams {
     result: SingleResult,
     ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } },
   ) => void;
+  upsertTask: (
+    taskId: string,
+    partial: {
+      agent: string;
+      summary: string;
+      task: string;
+      status: "queued" | "running" | "success" | "error" | "aborted";
+      delegationMode?: DelegationMode;
+      startedAt?: number;
+      updatedAt?: number;
+      finishedAt?: number;
+      sessionId?: string;
+      provider?: string;
+      model?: string;
+      error?: string;
+    },
+  ) => void;
+  syncTaskWithResult: (
+    taskId: string,
+    fallback: {
+      agent: string;
+      summary: string;
+      task: string;
+      delegationMode: DelegationMode;
+    },
+    result: SingleResult,
+  ) => void;
 }
 
 function getResultStatusLabel(result: SingleResult): string {
@@ -85,6 +112,8 @@ export async function executeParallel(params: ExecuteParallelParams) {
     maxDepth,
     upsertDelegatedRun,
     syncDelegatedRunWithResult,
+    upsertTask,
+    syncTaskWithResult,
   } = params;
 
   if (tasks.length > maxParallelTasks) {
@@ -101,8 +130,10 @@ export async function executeParallel(params: ExecuteParallelParams) {
 
   const now = Date.now();
   const runKeys = tasks.map((_task, index) => `${toolCallId}:${index}`);
+  const taskIds = tasks.map((_task, index) => `${toolCallId}:${index + 1}`);
   const allResults: SingleResult[] = tasks.map((t, index) => {
     const agent = agents.find((candidate) => candidate.name === t.agent);
+    const taskId = taskIds[index]!;
     upsertDelegatedRun(
       runKeys[index]!,
       {
@@ -115,7 +146,19 @@ export async function executeParallel(params: ExecuteParallelParams) {
       },
       ctx,
     );
+    upsertTask(taskId, {
+      agent: t.agent,
+      summary: t.summary,
+      task: t.task,
+      status: "queued",
+      delegationMode: t.delegationMode,
+      startedAt: now,
+      updatedAt: now,
+      provider: agent?.model?.includes("/") ? agent.model.split("/")[0] : undefined,
+      model: agent?.model,
+    });
     return {
+      taskId,
       agent: t.agent,
       agentSource: agent?.source ?? "unknown",
       task: t.task,
@@ -178,6 +221,12 @@ export async function executeParallel(params: ExecuteParallelParams) {
       };
       allResults[index] = failure;
       syncDelegatedRunWithResult(runKeys[index]!, tasks[index]!.agent, tasks[index]!.summary, failure, ctx);
+      syncTaskWithResult(taskIds[index]!, {
+        agent: tasks[index]!.agent,
+        summary: tasks[index]!.summary,
+        task: tasks[index]!.task,
+        delegationMode: tasks[index]!.delegationMode,
+      }, failure);
       return failure;
     });
 
@@ -193,6 +242,7 @@ export async function executeParallel(params: ExecuteParallelParams) {
       concurrency,
       async (t, index) => {
         const runKey = runKeys[index]!;
+        const taskId = taskIds[index]!;
         upsertDelegatedRun(
           runKey,
           {
@@ -204,11 +254,20 @@ export async function executeParallel(params: ExecuteParallelParams) {
           },
           ctx,
         );
+        upsertTask(taskId, {
+          agent: t.agent,
+          summary: t.summary,
+          task: t.task,
+          status: "running",
+          delegationMode: t.delegationMode,
+          updatedAt: Date.now(),
+        });
 
         try {
           const result = await runAgent({
             cwd: baseCwd,
             agents,
+            taskId,
             agentName: t.agent,
             task: t.task,
             summary: t.summary,
@@ -224,14 +283,28 @@ export async function executeParallel(params: ExecuteParallelParams) {
             onUpdate: (partial) => {
               if (partial.details?.results[0]) {
                 allResults[index] = partial.details.results[0];
+                if (!allResults[index]!.taskId) allResults[index]!.taskId = taskId;
                 syncDelegatedRunWithResult(runKey, t.agent, t.summary, allResults[index]!, ctx);
+                syncTaskWithResult(taskId, {
+                  agent: t.agent,
+                  summary: t.summary,
+                  task: t.task,
+                  delegationMode: t.delegationMode,
+                }, allResults[index]!);
                 emitProgress();
               }
             },
             makeDetails,
           });
           allResults[index] = result;
+          if (!allResults[index]!.taskId) allResults[index]!.taskId = taskId;
           syncDelegatedRunWithResult(runKey, t.agent, t.summary, result, ctx);
+          syncTaskWithResult(taskId, {
+            agent: t.agent,
+            summary: t.summary,
+            task: t.task,
+            delegationMode: t.delegationMode,
+          }, result);
           emitProgress();
           return result;
         } catch (error) {
@@ -253,6 +326,12 @@ export async function executeParallel(params: ExecuteParallelParams) {
           };
           allResults[index] = failure;
           syncDelegatedRunWithResult(runKey, t.agent, t.summary, failure, ctx);
+          syncTaskWithResult(taskId, {
+            agent: t.agent,
+            summary: t.summary,
+            task: t.task,
+            delegationMode: t.delegationMode,
+          }, failure);
           emitProgress();
           throw error;
         }
@@ -269,8 +348,8 @@ export async function executeParallel(params: ExecuteParallelParams) {
   const summaries = results.map((r) => {
     const output = getFinalOutput(r.messages);
     const summaryText = isResultError(r)
-      ? r.errorMessage || r.stderr || output || "(no output)"
-      : output || "(no output)";
+      ? r.errorMessage || r.stderr || output || SUBAGENT_FALLBACK_TEXT.noOutput
+      : output || SUBAGENT_FALLBACK_TEXT.noOutput;
     return `[${r.agent}] ${getResultStatusLabel(r)}: ${summaryText}`;
   });
 

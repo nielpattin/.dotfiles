@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import { loadSkills, stripFrontmatter } from "@mariozechner/pi-coding-agent";
+import { SUBAGENT_LOG_PREFIX } from "../constants.js";
 import type { AgentConfig } from "../agents/types.js";
 import type { SkillLoadInfo } from "../types.js";
 
@@ -94,5 +95,5 @@ export function formatSkillLoadSummary(skillLoad: SkillLoadInfo): string {
   const missing =
     skillLoad.missing.length > 0 ? skillLoad.missing.join(", ") : "(none)";
 
-  return `[pi-task] skill preload cwd="${skillLoad.lookupCwd}" requested=[${requested}] loaded=[${loaded}] missing=[${missing}]`;
+  return `${SUBAGENT_LOG_PREFIX} skill preload cwd="${skillLoad.lookupCwd}" requested=[${requested}] loaded=[${loaded}] missing=[${missing}]`;
 }

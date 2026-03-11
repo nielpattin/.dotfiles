@@ -294,7 +294,7 @@ export class SummaryCardsComponent {
 			);
 		} else if (!this.expanded && this.showExpandHint) {
 			lines.push("");
-			lines.push(this.theme.fg("muted", `(${keyHint("expandTools", "for full trace")})`));
+			lines.push(this.theme.fg("muted", `(${keyHint("expandTools", "to expand")})`));
 		}
 
 		this.cachedWidth = width;

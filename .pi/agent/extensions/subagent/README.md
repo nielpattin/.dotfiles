@@ -61,9 +61,9 @@ Delegate work to specialized agents through one tool: `task`.
 - legacy `tasks` payload is rejected
 - legacy top-level `mode: "spawn" | "fork"` payload model is rejected (use shape `mode` + per-operation `delegationMode`)
 
-## Settings panel (`/task-config`)
+## Agents panel (`/agents`)
 
-Use `/task-config` for per-agent defaults outside the LLM payload.
+Use `/agents` for per-agent defaults outside the LLM payload.
 
 The command opens a centered overlay panel (not an inline prompt widget).
 
@@ -101,6 +101,19 @@ Behavior:
 - extension selection stays in agent config/frontmatter, not payload
 - extension picker supports both inherit (clear override) and none (persist `extensions: []`)
 
+## Tasks panel (`/tasks`)
+
+Use `/tasks` to inspect delegated runs in a centered overlay panel.
+
+- list view and task detail view both run inside the same centered overlay flow
+- list view shows task id, agent, summary, task preview, status, timing, model/provider (when available), delegation mode
+- Enter opens a full task detail view
+- detail view loads by task id from the tracked task references
+- Left/Right switches previous/next task while staying inside detail view
+- detail transcript auto-scroll is ON by default and follows newest output
+- press `A` in detail view to toggle auto-scroll ON/OFF (OFF enables manual Up/Down/PgUp/PgDn/Home/End inspection without snapping back)
+- detail view surfaces session id, prompt/input/output, tool calls/results, usage, and error data when available
+
 ## Agent files
 
 Task agents are markdown files with frontmatter.
@@ -110,12 +123,3 @@ Task agents are markdown files with frontmatter.
 
 Project agents require confirmation before execution.
 
-## Tests
-
-```bash
-bun test extensions/subagent/tool.test.ts      # public contract
-bun test extensions/subagent/runner.test.ts
-bun test extensions/subagent/render.test.ts
-bun test extensions/subagent/agents.test.ts
-bun test extensions/subagent/taskconfig.test.ts
-```

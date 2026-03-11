@@ -1,47 +1,74 @@
-import type { AssistantMessage } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+/**
+ * Tokens Per Second Extension - displays tokens/second in the footer.
+ *
+ * Automatically enabled on startup. Shows cumulative average tok/s
+ * based on completed messages.
+ *
+ * The footer displays:
+ * - ↑{input tokens} ↓{output tokens} ${total cost} | {tps} tok/s {time} | {model}
+ */
 
-function isAssistantMessage(message: unknown): message is AssistantMessage {
-	if (!message || typeof message !== "object") return false;
-	const role = (message as { role?: unknown }).role;
-	return role === "assistant";
-}
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-	let agentStartMs: number | null = null;
+  let totalOutputTokens = 0;
+  let totalStreamingTime = 0;
+  let ttft = 0;
 
-	pi.on("agent_start", () => {
-		agentStartMs = Date.now();
-	});
+  const reset = (ctx: ExtensionContext) => {
+    totalOutputTokens = 0;
+    totalStreamingTime = 0;
+    ttft = 0;
+    update(ctx);
+  }
 
-	pi.on("agent_end", (event, ctx) => {
-		if (!ctx.hasUI) return;
-		if (agentStartMs === null) return;
+  const update = (ctx: ExtensionContext) => {
+    if (!ctx.hasUI) return;
+    const theme = ctx.ui.theme;
 
-		const elapsedMs = Date.now() - agentStartMs;
-		agentStartMs = null;
-		if (elapsedMs <= 0) return;
+    ctx.ui.setStatus("tps", theme.fg("accent", `${getAverageTps()} tok/s`));
+    ctx.ui.setStatus("streaming-time", theme.fg("accent", `${totalStreamingTime.toFixed(2)}s`));
+  }
 
-		let input = 0;
-		let output = 0;
-		let cacheRead = 0;
-		let cacheWrite = 0;
-		let totalTokens = 0;
+  const getAverageTps = (): string => {
+    if (totalStreamingTime > 0 && totalOutputTokens > 0) {
+      return (totalOutputTokens / totalStreamingTime).toFixed(2);
+    }
+    return "--";
+  };
 
-		for (const message of event.messages) {
-			if (!isAssistantMessage(message)) continue;
-			input += message.usage.input || 0;
-			output += message.usage.output || 0;
-			cacheRead += message.usage.cacheRead || 0;
-			cacheWrite += message.usage.cacheWrite || 0;
-			totalTokens += message.usage.totalTokens || 0;
-		}
+  pi.on("session_start", async (_event, ctx) => {
+    reset(ctx);
+  });
 
-		if (output <= 0) return;
+  pi.on("session_switch", async (_event, ctx) => {
+    reset(ctx);
+  });
 
-		const elapsedSeconds = elapsedMs / 1000;
-		const tokensPerSecond = output / elapsedSeconds;
-		const message = `TPS ${tokensPerSecond.toFixed(1)} tok/s. out ${output.toLocaleString()}, in ${input.toLocaleString()}, cache r/w ${cacheRead.toLocaleString()}/${cacheWrite.toLocaleString()}, total ${totalTokens.toLocaleString()}, ${elapsedSeconds.toFixed(1)}s`;
-		ctx.ui.notify(message, "info");
-	});
+  pi.on("message_start", async (_event, ctx) => {
+    ttft = 0;
+  })
+
+  pi.on("message_update", async (event, ctx) => {
+    if (ttft === 0) {
+      ttft = new Date().getTime() - event.message.timestamp;
+    }
+  });
+
+  pi.on("message_end", async (event, ctx) => {
+    const msg = event.message as any;
+    const outputTokens = msg.usage?.output || 0;
+
+    if (!outputTokens) return;
+
+    const endTime = new Date().getTime();
+    const elapsed = (endTime - event.message.timestamp - ttft) / 1000;
+
+    if (elapsed > 0 && outputTokens > 0) {
+      totalOutputTokens += outputTokens;
+      totalStreamingTime += elapsed;
+    }
+
+    update(ctx);
+  });
 }

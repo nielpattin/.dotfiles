@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../agents/types.js";
-import { DEFAULT_DELEGATION_MODE, type SingleResult, type SubagentDetails } from "../types.js";
+import { DEFAULT_DELEGATION_MODE, type DelegationMode, type SingleResult, type SubagentDetails } from "../types.js";
 import { executeParallel, type TaskExecutionOperation } from "./parallel.js";
 import { buildForkSessionSnapshotJsonl, type SessionSnapshotSource } from "./snapshot.js";
 import { type PublicOperation } from "./schema.js";
@@ -90,6 +90,33 @@ export interface ExecuteTaskToolParams {
     result: SingleResult,
     ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } },
   ) => void;
+  upsertTask: (
+    taskId: string,
+    partial: {
+      agent: string;
+      summary: string;
+      task: string;
+      status: "queued" | "running" | "success" | "error" | "aborted";
+      delegationMode?: DelegationMode;
+      startedAt?: number;
+      updatedAt?: number;
+      finishedAt?: number;
+      sessionId?: string;
+      provider?: string;
+      model?: string;
+      error?: string;
+    },
+  ) => void;
+  syncTaskWithResult: (
+    taskId: string,
+    fallback: {
+      agent: string;
+      summary: string;
+      task: string;
+      delegationMode: DelegationMode;
+    },
+    result: SingleResult,
+  ) => void;
 }
 
 export async function executeTaskTool(params: ExecuteTaskToolParams) {
@@ -110,6 +137,8 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
     maxDepth,
     upsertDelegatedRun,
     syncDelegatedRunWithResult,
+    upsertTask,
+    syncTaskWithResult,
   } = params;
 
   const tasks = mapOperationsWithAgentDefaults(operations, agents);
@@ -173,5 +202,7 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
     maxDepth,
     upsertDelegatedRun,
     syncDelegatedRunWithResult,
+    upsertTask,
+    syncTaskWithResult,
   });
 }

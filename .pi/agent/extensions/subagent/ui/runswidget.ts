@@ -1,4 +1,5 @@
 import { type SingleResult, getFailureCategory, getFinalOutput } from "../types.js";
+import { SUBAGENT_LOG_PREFIX } from "../constants.js";
 
 type WidgetRunState = "queued" | "running" | "success" | "error" | "aborted";
 
@@ -150,7 +151,7 @@ export function createDelegatedRunsWidget() {
     } catch (error) {
       widgetFailed = true;
       clearWidgetLingerTimer();
-      console.warn(`[pi-task] Failed to render subagent widget: ${String(error)}`);
+      console.warn(`${SUBAGENT_LOG_PREFIX} Failed to render subagent widget: ${String(error)}`);
       return;
     }
 

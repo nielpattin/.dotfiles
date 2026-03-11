@@ -6,6 +6,7 @@
 
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { AgentConfig } from "./agents/types.js";
+import { SUBAGENT_FALLBACK_TEXT } from "./constants.js";
 import {
   type DelegationMode,
   type SingleResult,
@@ -31,6 +32,8 @@ export interface RunAgentOptions {
   cwd: string;
   /** All available agent configs. */
   agents: AgentConfig[];
+  /** Stable task id used by /tasks detail lookup. */
+  taskId?: string;
   /** Name of the agent to run. */
   agentName: string;
   /** Task description. */
@@ -70,6 +73,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   const {
     cwd,
     agents,
+    taskId,
     agentName,
     task,
     summary,
@@ -92,6 +96,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   if (!agent) {
     const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
     return {
+      taskId,
       agent: agentName,
       agentSource: "unknown",
       task,
@@ -112,6 +117,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     (!forkSessionSnapshotJsonl || !forkSessionSnapshotJsonl.trim())
   ) {
     return {
+      taskId,
       agent: agentName,
       agentSource: agent.source,
       task,
@@ -134,6 +140,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   }
 
   const result: SingleResult = {
+    taskId,
     agent: agentName,
     agentSource: agent.source,
     task,
@@ -154,7 +161,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       content: [
         {
           type: "text",
-          text: getFinalOutput(result.messages) || "(running...)",
+          text: getFinalOutput(result.messages) || SUBAGENT_FALLBACK_TEXT.running,
         },
       ],
       details: makeDetails([result]),

@@ -98,6 +98,7 @@ export default function (pi: ExtensionAPI) {
 				container.addChild(new Text(theme.fg("accent", theme.bold(" Select file to diff")), 0, 0));
 
 				// Build select items with colored status
+				const fileByPath = new Map(files.map((f) => [f.file, f]));
 				const items: SelectItem[] = files.map((f) => {
 					let statusColor: string;
 					switch (f.status) {
@@ -117,7 +118,7 @@ export default function (pi: ExtensionAPI) {
 							statusColor = theme.fg("dim", f.status);
 					}
 					return {
-						value: f,
+						value: f.file,
 						label: `${statusColor} ${f.file}`,
 					};
 				});
@@ -133,7 +134,9 @@ export default function (pi: ExtensionAPI) {
 					noMatch: (t) => theme.fg("warning", t),
 				});
 				selectList.onSelect = (item) => {
-					void openSelected(item.value as FileInfo);
+					const selected = fileByPath.get(item.value);
+					if (!selected) return;
+					void openSelected(selected);
 				};
 				selectList.onCancel = () => done();
 				selectList.onSelectionChange = (item) => {

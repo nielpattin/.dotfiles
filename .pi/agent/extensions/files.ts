@@ -109,6 +109,7 @@ export default function (pi: ExtensionAPI) {
 				container.addChild(new Text(theme.fg("accent", theme.bold(" Select file to open")), 0, 0));
 
 				// Build select items with colored operations
+				const fileByPath = new Map(files.map((f) => [f.path, f]));
 				const items: SelectItem[] = files.map((f) => {
 					const ops: string[] = [];
 					if (f.operations.has("read")) ops.push(theme.fg("muted", "R"));
@@ -116,7 +117,7 @@ export default function (pi: ExtensionAPI) {
 					if (f.operations.has("edit")) ops.push(theme.fg("warning", "E"));
 					const opsLabel = ops.join("");
 					return {
-						value: f,
+						value: f.path,
 						label: `${opsLabel} ${f.path}`,
 					};
 				});
@@ -132,7 +133,9 @@ export default function (pi: ExtensionAPI) {
 					noMatch: (t) => theme.fg("warning", t),
 				});
 				selectList.onSelect = (item) => {
-					void openSelected(item.value as FileEntry);
+					const selected = fileByPath.get(item.value);
+					if (!selected) return;
+					void openSelected(selected);
 				};
 				selectList.onCancel = () => done();
 				selectList.onSelectionChange = (item) => {

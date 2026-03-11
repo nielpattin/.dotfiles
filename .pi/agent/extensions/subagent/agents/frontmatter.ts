@@ -1,5 +1,6 @@
 import { parseFrontmatter } from "@mariozechner/pi-coding-agent";
 import * as fs from "node:fs";
+import { SUBAGENT_LOG_PREFIX } from "../constants.js";
 import type { AgentConfig } from "./types.js";
 
 export function normalizeString(value: unknown): string | undefined {
@@ -54,7 +55,7 @@ export function parseListField(
   } else {
     if (fieldName !== "extensions") {
       console.warn(
-        `[pi-task] Ignoring invalid ${fieldName} field in "${filePath}". Expected a comma-separated string or string array.`,
+        `${SUBAGENT_LOG_PREFIX} Ignoring invalid ${fieldName} field in "${filePath}". Expected a comma-separated string or string array.`,
       );
     }
     return undefined;
@@ -193,7 +194,7 @@ export function parseAgentFile(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(
-      `[pi-task] Skipping invalid agent file "${filePath}": ${message}`,
+      `${SUBAGENT_LOG_PREFIX} Skipping invalid agent file "${filePath}": ${message}`,
     );
     return null;
   }

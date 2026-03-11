@@ -99,8 +99,7 @@ export default function (pi: ExtensionAPI) {
 			const pad = Math.max(0, 50 - title.length - hint.length);
 			parts.push(dim(`╭${title}${"─".repeat(pad)}${hint}╮`));
 
-			for (let i = 0; i < slots.length; i++) {
-				const s = slots[i];
+			for (const [i, s] of slots.entries()) {
 				if (i > 0) parts.push(dim("│ ───"));
 				parts.push(dim("│ ") + green("› ") + s.question);
 				if (s.thinking) {
@@ -109,7 +108,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				if (s.answer) {
 					const answerLines = s.answer.split("\n");
-					parts.push(dim("│ ") + answerLines[0]);
+					parts.push(dim("│ ") + (answerLines[0] ?? ""));
 					if (answerLines.length > 1) {
 						parts.push(answerLines.slice(1).join("\n"));
 					}
@@ -248,6 +247,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const thinkingLevel = pi.getThinkingLevel();
+		const reasoning = thinkingLevel === "off" ? undefined : thinkingLevel;
 		const modelLabel = `${model.provider}/${model.id}`;
 		const allMessages = buildBtwMessages(ctx, model, question);
 
@@ -272,7 +272,7 @@ export default function (pi: ExtensionAPI) {
 						systemPrompt: "You are having an aside conversation with the user, separate from their main working session. The main session messages are provided for context only — that work is being handled by another agent. Focus on answering the user's side questions, helping them think through ideas, or planning next steps. Do not act as if you need to complete or continue the main session's work.",
 						messages: allMessages,
 					},
-					{ apiKey, reasoning: thinkingLevel }
+					{ apiKey, reasoning }
 				);
 
 				for await (const event of eventStream) {
@@ -283,7 +283,7 @@ export default function (pi: ExtensionAPI) {
 						slot.answer += event.delta;
 						renderWidget(ctx);
 					} else if (event.type === "error") {
-						slot.answer += `\n❌ ${event.error.message}`;
+						slot.answer += `\n❌ ${event.error.errorMessage ?? "stream error"}`;
 						slot.done = true;
 						renderWidget(ctx);
 						return;

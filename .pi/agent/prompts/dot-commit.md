@@ -17,9 +17,13 @@ Build the worker `task` as a detailed commit request that:
 THIS IS THE FORMAT OF TASK TOOL YOU SHOULD USE. FOLLOW THIS EXACTLY:
 ```json
 {
-  "agent": "worker",
-  "summary": "<one-line summary of the commit task>",
-  "task": "<detailed worker instructions>",
-  "skills": ["writing-git-commits"]
+  "mode": "single",
+  "operation": {
+    "agent": "worker",
+    "summary": "<one-line summary of the commit task>",
+    "task": "<detailed worker instructions>",
+    "skill": "writing-git-commits",
+    "delegationMode": "spawn"
+  }
 }
 ```

@@ -83,11 +83,16 @@ function findSymbolPosition(
     // Search on the specific line first (1-indexed)
     const lineIdx = line - 1;
     if (lineIdx >= 0 && lineIdx < lines.length) {
-      const col = lines[lineIdx].indexOf(symbol);
-      if (col !== -1) {
-        let offset = 0;
-        for (let i = 0; i < lineIdx; i++) offset += lines[i].length + 1;
-        return offset + col;
+      const targetLine = lines[lineIdx];
+      if (targetLine !== undefined) {
+        const col = targetLine.indexOf(symbol);
+        if (col !== -1) {
+          let offset = 0;
+          for (let i = 0; i < lineIdx; i++) {
+            offset += (lines[i]?.length ?? 0) + 1;
+          }
+          return offset + col;
+        }
       }
     }
   }
@@ -112,7 +117,7 @@ function getLineContent(filePath: string, lineNum: number): string {
     const content = readFileSync(filePath, "utf-8");
     const lines = content.split("\n");
     if (lineNum > 0 && lineNum <= lines.length) {
-      return lines[lineNum - 1].trim();
+      return lines[lineNum - 1]?.trim() ?? "";
     }
   } catch {}
   return "";
@@ -318,11 +323,16 @@ async function rgReferences(
     if (!line.trim()) continue;
     const match = line.match(/^(.+?):(\d+):(\d+):(.*)$/);
     if (match) {
+      const filePart = match[1];
+      const linePart = match[2];
+      const columnPart = match[3];
+      const contextPart = match[4] ?? "";
+      if (!filePart || !linePart || !columnPart) continue;
       refs.push({
-        file: resolve(cwd, match[1]),
-        line: parseInt(match[2], 10),
-        column: parseInt(match[3], 10),
-        context: match[4].trim(),
+        file: resolve(cwd, filePart),
+        line: parseInt(linePart, 10),
+        column: parseInt(columnPart, 10),
+        context: contextPart.trim(),
       });
     }
   }
@@ -417,12 +427,14 @@ async function fallbackSymbols(
   ];
 
   for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
     for (const [pattern, kind] of patterns) {
-      const match = lines[i].match(pattern);
-      if (match) {
-        const exported = /^\s*(?:export|pub)\s/.test(lines[i]);
+      const match = line.match(pattern);
+      const name = match?.[1];
+      if (name) {
+        const exported = /^\s*(?:export|pub)\s/.test(line);
         const sym: SymbolInfo = {
-          name: match[1],
+          name,
           kind,
           line: i + 1,
           exported,

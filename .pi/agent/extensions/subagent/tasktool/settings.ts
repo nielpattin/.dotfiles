@@ -1,12 +1,10 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-
-const DEFAULT_MAX_PARALLEL_TASKS = 8;
-const DEFAULT_MAX_CONCURRENCY = 4;
-const DEFAULT_MAX_DELEGATION_DEPTH = 1;
-const TASK_DEPTH_ENV = "PI_TASK_DEPTH";
-const TASK_MAX_DEPTH_ENV = "PI_TASK_MAX_DEPTH";
-const TASK_MAX_PARALLEL_ENV = "PI_TASK_MAX_PARALLEL";
-const TASK_CONCURRENCY_ENV = "PI_TASK_CONCURRENCY";
+import {
+  SUBAGENT_LOG_PREFIX,
+  TASK_DEFAULTS,
+  TASK_ENV_NAMES,
+  TASK_FLAG_NAMES,
+} from "../constants.js";
 
 export interface DelegationDepthConfig {
   currentDepth: number;
@@ -57,7 +55,7 @@ function resolvePositiveIntSetting(
   const envValue = parsePositiveInt(envRaw);
   if (envRaw !== undefined && envValue === null) {
     console.warn(
-      `[pi-task] Ignoring invalid ${envName}="${envRaw}". Expected a positive integer.`,
+      `${SUBAGENT_LOG_PREFIX} Ignoring invalid ${envName}="${envRaw}". Expected a positive integer.`,
     );
   }
 
@@ -66,7 +64,7 @@ function resolvePositiveIntSetting(
     argvFlagRaw !== null ? parsePositiveInt(argvFlagRaw) : null;
   if (argvFlagRaw !== null && argvFlagValue === null) {
     console.warn(
-      `[pi-task] Ignoring invalid --${flagName} value "${argvFlagRaw}". Expected a positive integer.`,
+      `${SUBAGENT_LOG_PREFIX} Ignoring invalid --${flagName} value "${argvFlagRaw}". Expected a positive integer.`,
     );
   }
 
@@ -81,7 +79,7 @@ function resolvePositiveIntSetting(
     runtimeFlagValue === null
   ) {
     console.warn(
-      `[pi-task] Ignoring invalid --${flagName} value "${runtimeFlagRaw}". Expected a positive integer.`,
+      `${SUBAGENT_LOG_PREFIX} Ignoring invalid --${flagName} value "${runtimeFlagRaw}". Expected a positive integer.`,
     );
   }
 
@@ -89,33 +87,33 @@ function resolvePositiveIntSetting(
 }
 
 export function resolveDelegationDepthConfig(pi: ExtensionAPI): DelegationDepthConfig {
-  const depthRaw = process.env[TASK_DEPTH_ENV];
+  const depthRaw = process.env[TASK_ENV_NAMES.depth];
   const parsedDepth = parseNonNegativeInt(depthRaw);
   if (depthRaw !== undefined && parsedDepth === null) {
     console.warn(
-      `[pi-task] Ignoring invalid ${TASK_DEPTH_ENV}="${depthRaw}". Expected a non-negative integer.`,
+      `${SUBAGENT_LOG_PREFIX} Ignoring invalid ${TASK_ENV_NAMES.depth}="${depthRaw}". Expected a non-negative integer.`,
     );
   }
   const currentDepth = parsedDepth ?? 0;
 
-  const envMaxDepthRaw = process.env[TASK_MAX_DEPTH_ENV];
+  const envMaxDepthRaw = process.env[TASK_ENV_NAMES.maxDepth];
   const envMaxDepth = parseNonNegativeInt(envMaxDepthRaw);
   if (envMaxDepthRaw !== undefined && envMaxDepth === null) {
     console.warn(
-      `[pi-task] Ignoring invalid ${TASK_MAX_DEPTH_ENV}="${envMaxDepthRaw}". Expected a non-negative integer.`,
+      `${SUBAGENT_LOG_PREFIX} Ignoring invalid ${TASK_ENV_NAMES.maxDepth}="${envMaxDepthRaw}". Expected a non-negative integer.`,
     );
   }
 
-  const argvFlagRaw = getFlagValueFromArgv(process.argv, "task-max-depth");
+  const argvFlagRaw = getFlagValueFromArgv(process.argv, TASK_FLAG_NAMES.maxDepth);
   const argvFlagMaxDepth =
     argvFlagRaw !== null ? parseNonNegativeInt(argvFlagRaw) : null;
   if (argvFlagRaw !== null && argvFlagMaxDepth === null) {
     console.warn(
-      `[pi-task] Ignoring invalid --task-max-depth value "${argvFlagRaw}". Expected a non-negative integer.`,
+      `${SUBAGENT_LOG_PREFIX} Ignoring invalid --${TASK_FLAG_NAMES.maxDepth} value "${argvFlagRaw}". Expected a non-negative integer.`,
     );
   }
 
-  const runtimeFlagValue = pi.getFlag("task-max-depth");
+  const runtimeFlagValue = pi.getFlag(TASK_FLAG_NAMES.maxDepth);
   const runtimeFlagMaxDepth =
     typeof runtimeFlagValue === "string"
       ? parseNonNegativeInt(runtimeFlagValue)
@@ -126,33 +124,33 @@ export function resolveDelegationDepthConfig(pi: ExtensionAPI): DelegationDepthC
     runtimeFlagMaxDepth === null
   ) {
     console.warn(
-      `[pi-task] Ignoring invalid --task-max-depth value "${runtimeFlagValue}". Expected a non-negative integer.`,
+      `${SUBAGENT_LOG_PREFIX} Ignoring invalid --${TASK_FLAG_NAMES.maxDepth} value "${runtimeFlagValue}". Expected a non-negative integer.`,
     );
   }
 
   const flagMaxDepth = argvFlagMaxDepth ?? runtimeFlagMaxDepth;
-  const maxDepth = flagMaxDepth ?? envMaxDepth ?? DEFAULT_MAX_DELEGATION_DEPTH;
+  const maxDepth = flagMaxDepth ?? envMaxDepth ?? TASK_DEFAULTS.maxDelegationDepth;
   return { currentDepth, maxDepth, canDelegate: currentDepth < maxDepth };
 }
 
 export function resolveParallelExecutionConfig(pi: ExtensionAPI): ParallelExecutionConfig {
   const maxParallelTasks = resolvePositiveIntSetting(
     pi,
-    "task-max-parallel",
-    TASK_MAX_PARALLEL_ENV,
-    DEFAULT_MAX_PARALLEL_TASKS,
+    TASK_FLAG_NAMES.maxParallel,
+    TASK_ENV_NAMES.maxParallel,
+    TASK_DEFAULTS.maxParallelTasks,
   );
   const requestedConcurrency = resolvePositiveIntSetting(
     pi,
-    "task-concurrency",
-    TASK_CONCURRENCY_ENV,
-    DEFAULT_MAX_CONCURRENCY,
+    TASK_FLAG_NAMES.concurrency,
+    TASK_ENV_NAMES.concurrency,
+    TASK_DEFAULTS.maxConcurrency,
   );
   const concurrency = Math.min(requestedConcurrency, maxParallelTasks);
 
   if (requestedConcurrency > maxParallelTasks) {
     console.warn(
-      `[pi-task] Clamping task concurrency from ${requestedConcurrency} to ${maxParallelTasks} to respect the max parallel task limit.`,
+      `${SUBAGENT_LOG_PREFIX} Clamping task concurrency from ${requestedConcurrency} to ${maxParallelTasks} to respect the max parallel task limit.`,
     );
   }
 
