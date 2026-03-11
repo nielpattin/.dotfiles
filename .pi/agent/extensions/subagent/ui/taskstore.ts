@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   DEFAULT_DELEGATION_MODE,
   emptyUsage,
@@ -6,12 +8,14 @@ import {
   getFailureCategory,
 } from "../types.js";
 import { SUBAGENT_TOOL_NAME } from "../constants.js";
-import { loadTaskFile, persistTaskFile } from "./taskfiles.js";
+import { toPublicTaskId } from "../tasktool/display-task-id.js";
+import { deriveTaskDirectory, loadTaskFile, persistTaskFile } from "./taskfiles.js";
 
 export type TaskState = "queued" | "running" | "success" | "error" | "aborted";
 
 export interface TaskRef {
   taskId: string;
+  publicTaskId: string;
   agent: string;
   summary: string;
   task: string;
@@ -29,6 +33,7 @@ export interface TaskRef {
 
 export interface TaskDetail {
   taskId: string;
+  publicTaskId: string;
   ref: TaskRef;
   result?: SingleResult;
 }
@@ -82,6 +87,7 @@ function normalizeSingleResult(
 
   return {
     taskId: typeof partial.taskId === "string" ? partial.taskId : undefined,
+    publicTaskId: typeof partial.publicTaskId === "string" ? partial.publicTaskId : undefined,
     agent: typeof partial.agent === "string" ? partial.agent : "unknown",
     agentSource: partial.agentSource === "user" || partial.agentSource === "project" || partial.agentSource === "unknown"
       ? partial.agentSource
@@ -177,16 +183,98 @@ function extractHydratedTaskCandidates(branchEntries: unknown[]): HydratedTaskCa
   return candidates;
 }
 
+function extractHydratedTaskFileCandidates(sessionFile: string | undefined): HydratedTaskCandidate[] {
+  if (!sessionFile) return [];
+
+  const taskDir = deriveTaskDirectory(sessionFile);
+  if (!fs.existsSync(taskDir)) return [];
+
+  const candidates: HydratedTaskCandidate[] = [];
+  const entries = fs.readdirSync(taskDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".jsonl")) continue;
+
+    const taskFile = path.join(taskDir, entry.name);
+    const loaded = loadTaskFile(taskFile);
+    if (!loaded) continue;
+
+    let decodedTaskId = entry.name.slice(0, -".jsonl".length);
+    try {
+      decodedTaskId = decodeURIComponent(decodedTaskId);
+    } catch {
+      // keep encoded id fallback
+    }
+    const taskId = loaded.taskId?.trim() || decodedTaskId;
+    loaded.taskId = taskId;
+    loaded.taskFile = loaded.taskFile || taskFile;
+
+    const fallbackDelegationMode = loaded.delegationMode ?? DEFAULT_DELEGATION_MODE;
+    const fallback = {
+      agent: loaded.agent || "unknown",
+      summary: loaded.summary || "",
+      task: loaded.task || "",
+      delegationMode: fallbackDelegationMode,
+    };
+
+    candidates.push({
+      taskId,
+      fallback,
+      result: loaded,
+      updatedAt: loaded.updatedAt || loaded.startedAt || Date.now(),
+      hydrateDetail: true,
+    });
+  }
+
+  return candidates;
+}
+
 export function createTaskStore() {
   const refs = new Map<string, TaskRef>();
   const details = new Map<string, SingleResult>();
+  const publicToInternalTaskId = new Map<string, string>();
+  const internalToPublicTaskId = new Map<string, string>();
   let parentSessionFile: string | undefined;
+
+  const ensurePublicTaskId = (taskId: string): string => {
+    const existing = internalToPublicTaskId.get(taskId);
+    if (existing) return existing;
+
+    const base = toPublicTaskId(taskId);
+    let next = base;
+    let collisionIndex = 2;
+    while (true) {
+      const occupiedBy = publicToInternalTaskId.get(next);
+      if (!occupiedBy || occupiedBy === taskId) break;
+      next = `${base}-${collisionIndex}`;
+      collisionIndex += 1;
+    }
+
+    internalToPublicTaskId.set(taskId, next);
+    publicToInternalTaskId.set(next, taskId);
+    return next;
+  };
+
+  const resolveTaskId = (taskRef: string): string | undefined => {
+    const normalized = typeof taskRef === "string" ? taskRef.trim() : "";
+    if (!normalized) return undefined;
+    if (refs.has(normalized)) return normalized;
+    return publicToInternalTaskId.get(normalized);
+  };
+
+  const getPublicTaskId = (taskRef: string): string | undefined => {
+    const taskId = resolveTaskId(taskRef);
+    if (!taskId) return undefined;
+    return ensurePublicTaskId(taskId);
+  };
 
   const upsertTask = (taskId: string, partial: Partial<TaskRef> & Pick<TaskRef, "agent" | "summary" | "task" | "status">) => {
     const now = Date.now();
     const existing = refs.get(taskId);
+    const publicTaskId = existing?.publicTaskId ?? ensurePublicTaskId(taskId);
     const next: TaskRef = {
       taskId,
+      publicTaskId,
       agent: partial.agent,
       summary: partial.summary,
       task: partial.task,
@@ -219,6 +307,8 @@ export function createTaskStore() {
   ) => {
     const status = toTaskState(result);
     const now = Date.now();
+    const publicTaskId = ensurePublicTaskId(taskId);
+    result.publicTaskId = result.publicTaskId || publicTaskId;
     const taskFile = persistTaskFile(parentSessionFile, taskId, result) ?? result.taskFile;
     if (taskFile) result.taskFile = taskFile;
     details.set(taskId, result);
@@ -246,7 +336,12 @@ export function createTaskStore() {
     clear();
 
     const latestByTaskId = new Map<string, HydratedTaskCandidate>();
-    for (const candidate of extractHydratedTaskCandidates(branchEntries)) {
+    const mergedCandidates = [
+      ...extractHydratedTaskCandidates(branchEntries),
+      ...extractHydratedTaskFileCandidates(parentSessionFile),
+    ];
+
+    for (const candidate of mergedCandidates) {
       const existing = latestByTaskId.get(candidate.taskId);
       if (!existing || candidate.updatedAt >= existing.updatedAt) {
         latestByTaskId.set(candidate.taskId, candidate);
@@ -256,6 +351,9 @@ export function createTaskStore() {
     for (const candidate of latestByTaskId.values()) {
       const status = toTaskState(candidate.result);
       const now = Date.now();
+      const publicTaskId = ensurePublicTaskId(candidate.taskId);
+      candidate.result.publicTaskId = candidate.result.publicTaskId || publicTaskId;
+
       upsertTask(candidate.taskId, {
         agent: candidate.result.agent || candidate.fallback.agent,
         summary: candidate.result.summary || candidate.fallback.summary,
@@ -288,7 +386,10 @@ export function createTaskStore() {
     });
   };
 
-  const getTaskDetail = (taskId: string): TaskDetail | undefined => {
+  const getTaskDetail = (taskRef: string): TaskDetail | undefined => {
+    const taskId = resolveTaskId(taskRef);
+    if (!taskId) return undefined;
+
     const ref = refs.get(taskId);
     if (!ref) return undefined;
 
@@ -297,14 +398,20 @@ export function createTaskStore() {
       const loaded = loadTaskFile(ref.taskFile);
       if (loaded) {
         loaded.taskId = loaded.taskId || taskId;
+        loaded.publicTaskId = loaded.publicTaskId || ref.publicTaskId;
         loaded.taskFile = loaded.taskFile || ref.taskFile;
         details.set(taskId, loaded);
         result = loaded;
       }
     }
 
+    if (result && !result.publicTaskId) {
+      result.publicTaskId = ref.publicTaskId;
+    }
+
     return {
       taskId,
+      publicTaskId: ref.publicTaskId,
       ref,
       result,
     };
@@ -317,6 +424,8 @@ export function createTaskStore() {
   const clear = () => {
     refs.clear();
     details.clear();
+    publicToInternalTaskId.clear();
+    internalToPublicTaskId.clear();
   };
 
   return {
@@ -326,6 +435,8 @@ export function createTaskStore() {
     hydrateFromBranch,
     listTasks,
     getTaskDetail,
+    getPublicTaskId,
+    resolveTaskId,
     clear,
   };
 }

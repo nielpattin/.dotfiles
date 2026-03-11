@@ -16,6 +16,11 @@ export const PublicOperationSchema = Type.Object({
       description: "Optional delegation mode for this operation. Defaults to \"spawn\".",
     }),
   ),
+  background: Type.Optional(
+    Type.Boolean({
+      description: "Optional async execution flag. When true, this operation runs in background. Defaults to false.",
+    }),
+  ),
 });
 
 export const TaskParams = Type.Object({
@@ -38,6 +43,7 @@ export interface PublicOperation {
   cwd?: string;
   skill?: string;
   delegationMode: DelegationMode;
+  background: boolean;
 }
 
 export interface ValidatedTaskParams {

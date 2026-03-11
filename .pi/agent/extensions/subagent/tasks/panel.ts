@@ -274,7 +274,7 @@ export class TasksPanel {
     const th = this.theme;
     const marker = selected ? th.fg("accent", "❯") : th.fg("dim", "•");
     const status = statusLabel(th, task.status, selected);
-    const meta = `${th.fg("muted", task.taskId)} ${th.fg("borderMuted", "·")} ${task.agent} ${th.fg("borderMuted", "·")} ${status} ${th.fg("borderMuted", "·")} ${elapsed(task.startedAt, task.finishedAt)} ${th.fg("borderMuted", "·")} ${task.delegationMode}`;
+    const meta = `${th.fg("muted", task.publicTaskId)} ${th.fg("borderMuted", "·")} ${task.agent} ${th.fg("borderMuted", "·")} ${status} ${th.fg("borderMuted", "·")} ${elapsed(task.startedAt, task.finishedAt)} ${th.fg("borderMuted", "·")} ${task.delegationMode}`;
     const summary = oneLine(task.summary, 44);
     const line = selected
       ? ` ${marker} ${th.bold(meta)} ${th.fg("dim", "—")} ${th.bold(summary)}`
@@ -332,7 +332,7 @@ export class TasksPanel {
       ),
     );
     lines.push(
-      chrome.row(` ${th.fg("dim", "model")} ${th.fg("muted", model)} ${th.fg("borderMuted", "•")} ${th.fg("dim", "session")} ${th.fg("muted", sessionId)}`),
+      chrome.row(` ${th.fg("dim", "ref")} ${th.fg("muted", detail.publicTaskId)} ${th.fg("borderMuted", "•")} ${th.fg("dim", "model")} ${th.fg("muted", model)} ${th.fg("borderMuted", "•")} ${th.fg("dim", "session")} ${th.fg("muted", sessionId)}`),
     );
 
     lines.push(chrome.strongDivider());

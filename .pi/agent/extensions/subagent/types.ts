@@ -45,6 +45,7 @@ export type FailureCategory = "validation" | "startup" | "abort" | "runtime";
 /** Result of a single subagent invocation. */
 export interface SingleResult {
 	taskId?: string;
+	publicTaskId?: string;
 	agent: string;
 	agentSource: "user" | "project" | "unknown";
 	task: string;
@@ -76,6 +77,14 @@ export interface SubagentDetails {
 	delegationMode: DelegationMode;
 	projectAgentsDir: string | null;
 	results: SingleResult[];
+	backgroundTasks?: Array<{
+		taskId: string;
+		internalTaskId?: string;
+		agent: string;
+		summary: string;
+		status: "queued" | "running" | "success" | "error" | "aborted";
+	}>;
+	backgroundTrackingHint?: string;
 }
 
 /** A display-friendly representation of a message part. */

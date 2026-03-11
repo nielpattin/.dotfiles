@@ -45,6 +45,12 @@ export function validatePublicOperation(raw: unknown, label: string):
       message: `${label}.delegationMode must be \"spawn\" or \"fork\" when provided.`,
     };
   }
+  if (raw.background !== undefined && typeof raw.background !== "boolean") {
+    return {
+      ok: false,
+      message: `${label}.background must be a boolean when provided.`,
+    };
+  }
 
   return {
     ok: true,
@@ -55,6 +61,7 @@ export function validatePublicOperation(raw: unknown, label: string):
       ...(typeof raw.cwd === "string" ? { cwd: raw.cwd } : {}),
       ...(typeof raw.skill === "string" ? { skill: raw.skill.trim() } : {}),
       delegationMode: raw.delegationMode === "fork" ? "fork" : DEFAULT_DELEGATION_MODE,
+      background: raw.background === true,
     },
   };
 }

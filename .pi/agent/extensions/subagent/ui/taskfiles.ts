@@ -43,6 +43,11 @@ function encodeTaskId(taskId: string): string {
   return encodeURIComponent(taskId);
 }
 
+export function deriveTaskDirectory(sessionFile: string): string {
+  const sessionDir = path.dirname(sessionFile);
+  return path.join(sessionDir, toSessionStem(sessionFile));
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -104,9 +109,7 @@ function parseResultRecord(line: string): SingleResult | undefined {
 }
 
 export function deriveTaskFilePath(sessionFile: string, taskId: string): string {
-  const sessionDir = path.dirname(sessionFile);
-  const stemDir = path.join(sessionDir, toSessionStem(sessionFile));
-  return path.join(stemDir, `${encodeTaskId(taskId)}.jsonl`);
+  return path.join(deriveTaskDirectory(sessionFile), `${encodeTaskId(taskId)}.jsonl`);
 }
 
 export function persistTaskFile(sessionFile: string | undefined, taskId: string, result: SingleResult): string | undefined {

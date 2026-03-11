@@ -19,11 +19,13 @@ export interface TaskExecutionOperation {
   overrideSkills?: string[];
   extensions?: string[];
   delegationMode: DelegationMode;
+  background?: boolean;
 }
 
 export interface ExecuteParallelParams {
   toolCallId: string;
   tasks: TaskExecutionOperation[];
+  taskIds?: string[];
   inheritedThinking: string;
   agents: AgentConfig[];
   baseCwd: string;
@@ -98,6 +100,7 @@ export async function executeParallel(params: ExecuteParallelParams) {
   const {
     toolCallId,
     tasks,
+    taskIds: providedTaskIds,
     inheritedThinking,
     agents,
     baseCwd,
@@ -128,9 +131,25 @@ export async function executeParallel(params: ExecuteParallelParams) {
     };
   }
 
+  if (providedTaskIds && providedTaskIds.length !== tasks.length) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: "Internal error: task id count does not match task count.",
+        },
+      ],
+      details: makeDetails([]),
+      isError: true,
+    };
+  }
+
   const now = Date.now();
-  const runKeys = tasks.map((_task, index) => `${toolCallId}:${index}`);
-  const taskIds = tasks.map((_task, index) => `${toolCallId}:${index + 1}`);
+  const taskIds = providedTaskIds ?? tasks.map((_task, index) => `${toolCallId}:${index + 1}`);
+  const runKeys = providedTaskIds
+    ? taskIds.map((taskId) => `${toolCallId}:run:${taskId}`)
+    : tasks.map((_task, index) => `${toolCallId}:${index}`);
+
   const allResults: SingleResult[] = tasks.map((t, index) => {
     const agent = agents.find((candidate) => candidate.name === t.agent);
     const taskId = taskIds[index]!;

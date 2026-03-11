@@ -7,11 +7,20 @@ export const SUBAGENT_LOG_PREFIX = "[pi-task]";
 /** Stable tool name for registration and task history hydration. */
 export const SUBAGENT_TOOL_NAME = "task";
 
+/** Tool name for programmatic task result lookup. */
+export const TASK_RESULT_TOOL_NAME = "task_result";
+
 /** Shared fallback text snippets for partial/empty output states. */
 export const SUBAGENT_FALLBACK_TEXT = {
   running: "(running...)",
   noOutput: "(no output)",
 } as const;
+
+/** Hidden control message type used for background completion orchestration. */
+export const SUBAGENT_BACKGROUND_COMPLETION_TYPE = "subagent-background-complete";
+
+/** Visible status message type for concise background completion UX updates. */
+export const SUBAGENT_BACKGROUND_STATUS_TYPE = "subagent-background-status";
 
 /** Delegation-related CLI flag names. */
 export const TASK_FLAG_NAMES = {
