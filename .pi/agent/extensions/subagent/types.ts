@@ -44,8 +44,9 @@ export type FailureCategory = "validation" | "startup" | "abort" | "runtime";
 
 /** Result of a single subagent invocation. */
 export interface SingleResult {
+	sessionId?: string;
 	taskId?: string;
-	publicTaskId?: string;
+	siblingIndex?: number;
 	agent: string;
 	agentSource: "user" | "project" | "unknown";
 	task: string;
@@ -57,9 +58,8 @@ export interface SingleResult {
 	usage: UsageStats;
 	startedAt: number;
 	updatedAt: number;
-	sessionId?: string;
 	sessionName?: string;
-	taskFile?: string;
+	sessionFile?: string;
 	skillLoad?: SkillLoadInfo;
 	activeTool?: ToolActivity;
 	lastTool?: ToolActivity;
@@ -78,8 +78,9 @@ export interface SubagentDetails {
 	projectAgentsDir: string | null;
 	results: SingleResult[];
 	backgroundTasks?: Array<{
-		taskId: string;
-		internalTaskId?: string;
+		sessionId: string;
+		taskId?: string;
+		siblingIndex?: number;
 		agent: string;
 		summary: string;
 		status: "queued" | "running" | "success" | "error" | "aborted";

@@ -300,7 +300,7 @@ export class TaskConfigPanel {
 
       options.push({
         label: "Clear all",
-        description: "Remove all configured default skills.",
+        description: "Remove all configured skills.",
         action: () => this.done({
           action: "save",
           agentName: this.currentAgentName,
@@ -380,13 +380,13 @@ export class TaskConfigPanel {
       return options;
     }
 
-    const defaultSkillsText = current?.skills && current.skills.length > 0
+    const skillsText = current?.skills && current.skills.length > 0
       ? current.skills.join(", ")
       : "(none)";
 
     return [
       {
-        label: `Default skills: ${defaultSkillsText}`,
+        label: `Skills: ${skillsText}`,
         action: () => this.openSkillPicker(current?.skills),
       },
       {
@@ -395,7 +395,7 @@ export class TaskConfigPanel {
       },
       {
         label: "Clear agent settings",
-        description: "Removes stored default skills/extensions for this agent.",
+        description: "Removes stored skills/extensions for this agent.",
         action: () => this.done({ action: "clear", agentName: this.currentAgentName }),
       },
       {
@@ -447,8 +447,8 @@ export class TaskConfigPanel {
   }
 
   private getFieldLabel(field: TaskConfigField): string {
-    if (field === "skills") return "Default skills";
-    return "Enabled extensions";
+    if (field === "skills") return "Skills";
+    return "Extensions";
   }
 
   private getFieldHint(field: TaskConfigField): string {

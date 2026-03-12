@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { SUBAGENT_FALLBACK_TEXT, SUBAGENT_UI_REFRESH_MS } from "../constants.js";
 import type { AgentConfig } from "../agents/types.js";
+import type { SessionSnapshot } from "./snapshot.js";
 import { mapConcurrent, runAgent } from "../runner.js";
 import {
   type DelegationMode,
@@ -22,14 +24,21 @@ export interface TaskExecutionOperation {
   background?: boolean;
 }
 
+export interface TaskIdentity {
+  sessionId: string;
+  taskId?: string;
+  siblingIndex?: number;
+}
+
 export interface ExecuteParallelParams {
-  toolCallId: string;
+  taskId: string;
   tasks: TaskExecutionOperation[];
-  taskIds?: string[];
+  taskIdentities?: TaskIdentity[];
   inheritedThinking: string;
   agents: AgentConfig[];
   baseCwd: string;
-  forkSessionSnapshotJsonl?: string;
+  parentSessionFile?: string;
+  forkSessionSnapshot?: SessionSnapshot;
   signal?: AbortSignal;
   onUpdate?: (partial: any) => void;
   ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } };
@@ -60,7 +69,7 @@ export interface ExecuteParallelParams {
     ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } },
   ) => void;
   upsertTask: (
-    taskId: string,
+    sessionId: string,
     partial: {
       agent: string;
       summary: string;
@@ -70,19 +79,23 @@ export interface ExecuteParallelParams {
       startedAt?: number;
       updatedAt?: number;
       finishedAt?: number;
-      sessionId?: string;
+      taskId?: string;
+      siblingIndex?: number;
       provider?: string;
       model?: string;
       error?: string;
+      sessionFile?: string;
     },
   ) => void;
   syncTaskWithResult: (
-    taskId: string,
+    sessionId: string,
     fallback: {
       agent: string;
       summary: string;
       task: string;
       delegationMode: DelegationMode;
+      taskId?: string;
+      siblingIndex?: number;
     },
     result: SingleResult,
   ) => void;
@@ -96,15 +109,24 @@ function getResultStatusLabel(result: SingleResult): string {
   return result.stopReason || "failed";
 }
 
+function toLightweightResult(result: SingleResult): SingleResult {
+  return {
+    ...result,
+    messages: [],
+    activeTool: undefined,
+  };
+}
+
 export async function executeParallel(params: ExecuteParallelParams) {
   const {
-    toolCallId,
+    taskId,
     tasks,
-    taskIds: providedTaskIds,
+    taskIdentities: providedTaskIdentities,
     inheritedThinking,
     agents,
     baseCwd,
-    forkSessionSnapshotJsonl,
+    parentSessionFile,
+    forkSessionSnapshot,
     signal,
     onUpdate,
     ctx,
@@ -131,12 +153,12 @@ export async function executeParallel(params: ExecuteParallelParams) {
     };
   }
 
-  if (providedTaskIds && providedTaskIds.length !== tasks.length) {
+  if (providedTaskIdentities && providedTaskIdentities.length !== tasks.length) {
     return {
       content: [
         {
           type: "text" as const,
-          text: "Internal error: task id count does not match task count.",
+          text: "Internal error: task identity count does not match task count.",
         },
       ],
       details: makeDetails([]),
@@ -145,14 +167,18 @@ export async function executeParallel(params: ExecuteParallelParams) {
   }
 
   const now = Date.now();
-  const taskIds = providedTaskIds ?? tasks.map((_task, index) => `${toolCallId}:${index + 1}`);
-  const runKeys = providedTaskIds
-    ? taskIds.map((taskId) => `${toolCallId}:run:${taskId}`)
-    : tasks.map((_task, index) => `${toolCallId}:${index}`);
+  const taskIdentities = providedTaskIdentities ?? tasks.map((_task, index) => ({
+    sessionId: randomUUID(),
+    taskId: taskId,
+    siblingIndex: index + 1,
+  }));
+  const sessionIds = taskIdentities.map((identity) => identity.sessionId);
+  const runKeys = sessionIds.map((sessionId) => `${taskId}:run:${sessionId}`);
 
   const allResults: SingleResult[] = tasks.map((t, index) => {
     const agent = agents.find((candidate) => candidate.name === t.agent);
-    const taskId = taskIds[index]!;
+    const identity = taskIdentities[index]!;
+    const sessionId = identity.sessionId;
     upsertDelegatedRun(
       runKeys[index]!,
       {
@@ -165,7 +191,7 @@ export async function executeParallel(params: ExecuteParallelParams) {
       },
       ctx,
     );
-    upsertTask(taskId, {
+    upsertTask(sessionId, {
       agent: t.agent,
       summary: t.summary,
       task: t.task,
@@ -173,11 +199,15 @@ export async function executeParallel(params: ExecuteParallelParams) {
       delegationMode: t.delegationMode,
       startedAt: now,
       updatedAt: now,
+      taskId: identity.taskId,
+      siblingIndex: identity.siblingIndex,
       provider: agent?.model?.includes("/") ? agent.model.split("/")[0] : undefined,
       model: agent?.model,
     });
     return {
-      taskId,
+      sessionId,
+      taskId: identity.taskId,
+      siblingIndex: identity.siblingIndex,
       agent: t.agent,
       agentSource: agent?.source ?? "unknown",
       task: t.task,
@@ -206,7 +236,7 @@ export async function executeParallel(params: ExecuteParallelParams) {
           text: `Parallel: ${done}/${allResults.length} done, ${running} running...`,
         },
       ],
-      details: makeDetails([...allResults]),
+      details: makeDetails(allResults.map((result) => toLightweightResult(result))),
     });
   };
 
@@ -240,11 +270,13 @@ export async function executeParallel(params: ExecuteParallelParams) {
       };
       allResults[index] = failure;
       syncDelegatedRunWithResult(runKeys[index]!, tasks[index]!.agent, tasks[index]!.summary, failure, ctx);
-      syncTaskWithResult(taskIds[index]!, {
+      syncTaskWithResult(sessionIds[index]!, {
         agent: tasks[index]!.agent,
         summary: tasks[index]!.summary,
         task: tasks[index]!.task,
         delegationMode: tasks[index]!.delegationMode,
+        taskId: taskIdentities[index]?.taskId,
+        siblingIndex: taskIdentities[index]?.siblingIndex,
       }, failure);
       return failure;
     });
@@ -261,7 +293,8 @@ export async function executeParallel(params: ExecuteParallelParams) {
       concurrency,
       async (t, index) => {
         const runKey = runKeys[index]!;
-        const taskId = taskIds[index]!;
+        const identity = taskIdentities[index]!;
+        const sessionId = identity.sessionId;
         upsertDelegatedRun(
           runKey,
           {
@@ -273,20 +306,24 @@ export async function executeParallel(params: ExecuteParallelParams) {
           },
           ctx,
         );
-        upsertTask(taskId, {
+        upsertTask(sessionId, {
           agent: t.agent,
           summary: t.summary,
           task: t.task,
           status: "running",
           delegationMode: t.delegationMode,
           updatedAt: Date.now(),
+          taskId: identity.taskId,
+          siblingIndex: identity.siblingIndex,
         });
 
         try {
           const result = await runAgent({
             cwd: baseCwd,
             agents,
-            taskId,
+            sessionId,
+            taskId: identity.taskId,
+            siblingIndex: identity.siblingIndex,
             agentName: t.agent,
             task: t.task,
             summary: t.summary,
@@ -294,7 +331,8 @@ export async function executeParallel(params: ExecuteParallelParams) {
             overrideSkills: t.overrideSkills,
             overrideExtensions: t.extensions,
             delegationMode: t.delegationMode,
-            forkSessionSnapshotJsonl: t.delegationMode === "fork" ? forkSessionSnapshotJsonl : undefined,
+            parentSessionFile,
+            forkSessionSnapshot: t.delegationMode === "fork" ? forkSessionSnapshot : undefined,
             inheritedThinking,
             parentDepth: currentDepth,
             maxDepth,
@@ -302,13 +340,17 @@ export async function executeParallel(params: ExecuteParallelParams) {
             onUpdate: (partial) => {
               if (partial.details?.results[0]) {
                 allResults[index] = partial.details.results[0];
-                if (!allResults[index]!.taskId) allResults[index]!.taskId = taskId;
+                if (!allResults[index]!.sessionId) allResults[index]!.sessionId = sessionId;
+                if (!allResults[index]!.taskId) allResults[index]!.taskId = identity.taskId;
+                if (!allResults[index]!.siblingIndex) allResults[index]!.siblingIndex = identity.siblingIndex;
                 syncDelegatedRunWithResult(runKey, t.agent, t.summary, allResults[index]!, ctx);
-                syncTaskWithResult(taskId, {
+                syncTaskWithResult(sessionId, {
                   agent: t.agent,
                   summary: t.summary,
                   task: t.task,
                   delegationMode: t.delegationMode,
+                  taskId: identity.taskId,
+                  siblingIndex: identity.siblingIndex,
                 }, allResults[index]!);
                 emitProgress();
               }
@@ -316,13 +358,17 @@ export async function executeParallel(params: ExecuteParallelParams) {
             makeDetails,
           });
           allResults[index] = result;
-          if (!allResults[index]!.taskId) allResults[index]!.taskId = taskId;
+          if (!allResults[index]!.sessionId) allResults[index]!.sessionId = sessionId;
+          if (!allResults[index]!.taskId) allResults[index]!.taskId = identity.taskId;
+          if (!allResults[index]!.siblingIndex) allResults[index]!.siblingIndex = identity.siblingIndex;
           syncDelegatedRunWithResult(runKey, t.agent, t.summary, result, ctx);
-          syncTaskWithResult(taskId, {
+          syncTaskWithResult(sessionId, {
             agent: t.agent,
             summary: t.summary,
             task: t.task,
             delegationMode: t.delegationMode,
+            taskId: identity.taskId,
+            siblingIndex: identity.siblingIndex,
           }, result);
           emitProgress();
           return result;
@@ -334,6 +380,9 @@ export async function executeParallel(params: ExecuteParallelParams) {
             : `Parallel task crashed: ${errorText}`;
           const failure: SingleResult = {
             ...allResults[index]!,
+            sessionId,
+            taskId: identity.taskId,
+            siblingIndex: identity.siblingIndex,
             exitCode: signal?.aborted ? 130 : 1,
             updatedAt: failedAt,
             stopReason: signal?.aborted ? "aborted" : "error",
@@ -345,11 +394,13 @@ export async function executeParallel(params: ExecuteParallelParams) {
           };
           allResults[index] = failure;
           syncDelegatedRunWithResult(runKey, t.agent, t.summary, failure, ctx);
-          syncTaskWithResult(taskId, {
+          syncTaskWithResult(sessionId, {
             agent: t.agent,
             summary: t.summary,
             task: t.task,
             delegationMode: t.delegationMode,
+            taskId: identity.taskId,
+            siblingIndex: identity.siblingIndex,
           }, failure);
           emitProgress();
           throw error;
@@ -381,7 +432,7 @@ export async function executeParallel(params: ExecuteParallelParams) {
           : `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
       },
     ],
-    details: makeDetails(results),
+    details: makeDetails(results.map((result) => toLightweightResult(result))),
     ...(unexpectedFailureMessage ? { isError: true } : {}),
   };
 }

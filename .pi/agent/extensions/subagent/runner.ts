@@ -8,20 +8,35 @@ import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { AgentConfig } from "./agents/types.js";
 import { SUBAGENT_FALLBACK_TEXT } from "./constants.js";
 import {
-  type DelegationMode,
   type SingleResult,
   type SubagentDetails,
   type SkillLoadInfo,
   emptyUsage,
   getFinalOutput,
 } from "./types.js";
+import type { SessionSnapshot } from "./tasktool/snapshot.js";
+import { deriveTaskDirectory, deriveTaskSessionPath } from "./ui/taskfiles.js";
 import { buildPiArgs } from "./runner/args.js";
 import { runChildProcess, setFailure } from "./runner/process.js";
 import { buildTaskPromptWithAgentSkills, formatSkillLoadSummary } from "./runner/prompt.js";
 import { getPiSpawnTarget } from "./runner/spawntarget.js";
-import { cleanupTempDir, writeForkSessionToTempFile, writePromptToTempFile } from "./runner/tempfiles.js";
+import {
+  buildForkSnapshotPrompt,
+  cleanupTempDir,
+  initializeForkChildSessionFile,
+  initializeSpawnChildSessionFile,
+  writePromptToTempFile,
+} from "./runner/tempfiles.js";
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
+
+function toLightweightResult(result: SingleResult): SingleResult {
+  return {
+    ...result,
+    messages: [],
+    activeTool: undefined,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -32,8 +47,11 @@ export interface RunAgentOptions {
   cwd: string;
   /** All available agent configs. */
   agents: AgentConfig[];
-  /** Stable task id used by /tasks detail lookup. */
+  /** Canonical child session id used by /tasks and task_result lookup. */
+  sessionId?: string;
+  /** Task id for sibling grouping in /tasks navigation. */
   taskId?: string;
+  siblingIndex?: number;
   /** Name of the agent to run. */
   agentName: string;
   /** Task description. */
@@ -42,16 +60,16 @@ export interface RunAgentOptions {
   summary: string;
   /** Optional override working directory. */
   taskCwd?: string;
-  /** Context mode: spawn (fresh) or fork (session snapshot + task). */
-  delegationMode: DelegationMode;
   /** Effective thinking level inherited from the parent session when the agent file omits it. */
   inheritedThinking?: string;
   /** Call-time skill override. When provided, it replaces frontmatter skills for this run. */
   overrideSkills?: string[];
   /** Optional extension override from local task settings. */
   overrideExtensions?: string[];
-  /** Serialized parent session snapshot used when delegationMode is "fork". */
-  forkSessionSnapshotJsonl?: string;
+  /** Parent session file path used to derive durable delegated task files. */
+  parentSessionFile?: string;
+  /** Parent session snapshot used when running in fork mode. */
+  forkSessionSnapshot?: SessionSnapshot;
   /** Current delegation depth of the caller process. */
   parentDepth: number;
   /** Maximum allowed delegation depth to propagate to child processes. */
@@ -62,6 +80,8 @@ export interface RunAgentOptions {
   onUpdate?: OnUpdateCallback;
   /** Factory to wrap results into SubagentDetails. */
   makeDetails: (results: SingleResult[]) => SubagentDetails;
+  /** Delegation mode for the child run. */
+  delegationMode: "spawn" | "fork";
 }
 
 /**
@@ -73,7 +93,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   const {
     cwd,
     agents,
+    sessionId,
     taskId,
+    siblingIndex,
     agentName,
     task,
     summary,
@@ -82,7 +104,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     inheritedThinking,
     overrideSkills,
     overrideExtensions,
-    forkSessionSnapshotJsonl,
+    parentSessionFile,
+    forkSessionSnapshot,
     parentDepth,
     maxDepth,
     signal,
@@ -93,10 +116,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
   const now = Date.now();
   const agent = agents.find((a) => a.name === agentName);
   const effectiveThinking = agent?.thinking ?? inheritedThinking;
+  const canonicalSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
   if (!agent) {
     const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
     return {
+      sessionId: canonicalSessionId || undefined,
       taskId,
+      siblingIndex,
       agent: agentName,
       agentSource: "unknown",
       task,
@@ -112,12 +138,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     };
   }
 
-  if (
-    delegationMode === "fork" &&
-    (!forkSessionSnapshotJsonl || !forkSessionSnapshotJsonl.trim())
-  ) {
+  if (!parentSessionFile || !parentSessionFile.trim()) {
     return {
+      sessionId: canonicalSessionId || undefined,
       taskId,
+      siblingIndex,
       agent: agentName,
       agentSource: agent.source,
       task,
@@ -125,22 +150,73 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       delegationMode,
       exitCode: 1,
       messages: [],
-      stderr:
-        "Cannot run in fork mode: missing parent session snapshot context.",
+      stderr: "Cannot run delegated task: missing parent session file.",
       usage: emptyUsage(),
       startedAt: now,
       updatedAt: now,
       model: agent.model,
       thinking: effectiveThinking,
       stopReason: "error",
-      errorMessage:
-        "Cannot run in fork mode: missing parent session snapshot context.",
+      errorMessage: "Cannot run delegated task: missing parent session file.",
       failureCategory: "validation",
     };
   }
 
+  if (!canonicalSessionId) {
+    return {
+      sessionId: undefined,
+      taskId,
+      siblingIndex,
+      agent: agentName,
+      agentSource: agent.source,
+      task,
+      summary,
+      delegationMode,
+      exitCode: 1,
+      messages: [],
+      stderr: "Cannot run delegated task: missing child session id.",
+      usage: emptyUsage(),
+      startedAt: now,
+      updatedAt: now,
+      model: agent.model,
+      thinking: effectiveThinking,
+      stopReason: "error",
+      errorMessage: "Cannot run delegated task: missing child session id.",
+      failureCategory: "validation",
+    };
+  }
+
+  if (delegationMode === "fork" && !forkSessionSnapshot) {
+    return {
+      sessionId: canonicalSessionId,
+      taskId,
+      siblingIndex,
+      agent: agentName,
+      agentSource: agent.source,
+      task,
+      summary,
+      delegationMode,
+      exitCode: 1,
+      messages: [],
+      stderr: "Cannot run in fork mode: missing parent session snapshot context.",
+      usage: emptyUsage(),
+      startedAt: now,
+      updatedAt: now,
+      model: agent.model,
+      thinking: effectiveThinking,
+      stopReason: "error",
+      errorMessage: "Cannot run in fork mode: missing parent session snapshot context.",
+      failureCategory: "validation",
+    };
+  }
+
+  const childSessionDir = deriveTaskDirectory(parentSessionFile);
+  const childSessionFile = deriveTaskSessionPath(parentSessionFile, canonicalSessionId);
+
   const result: SingleResult = {
+    sessionId: canonicalSessionId,
     taskId,
+    siblingIndex,
     agent: agentName,
     agentSource: agent.source,
     task,
@@ -154,7 +230,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     updatedAt: now,
     model: agent.model,
     thinking: effectiveThinking,
+    sessionFile: childSessionFile,
   };
+
+  if (delegationMode === "fork") {
+    initializeForkChildSessionFile(childSessionFile);
+  } else {
+    initializeSpawnChildSessionFile(childSessionFile);
+  }
 
   const emitUpdate = () => {
     onUpdate?.({
@@ -164,7 +247,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
           text: getFinalOutput(result.messages) || SUBAGENT_FALLBACK_TEXT.running,
         },
       ],
-      details: makeDetails([result]),
+      details: makeDetails([toLightweightResult(result)]),
     });
   };
 
@@ -176,14 +259,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     promptTmpPath = tmp.filePath;
   }
 
-  let forkSessionTmpDir: string | null = null;
-  let forkSessionTmpPath: string | null = null;
-  if (delegationMode === "fork" && forkSessionSnapshotJsonl) {
-    const tmp = writeForkSessionToTempFile(agent.name, forkSessionSnapshotJsonl);
-    forkSessionTmpDir = tmp.dir;
-    forkSessionTmpPath = tmp.filePath;
-  }
-
   try {
     const taskPrompt = buildTaskPromptWithAgentSkills(
       task,
@@ -191,6 +266,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       taskCwd ?? cwd,
       overrideSkills,
     );
+
+    const effectivePrompt = delegationMode === "fork" && forkSessionSnapshot
+      ? `${buildForkSnapshotPrompt(forkSessionSnapshot)}\n\n${taskPrompt.prompt}`
+      : taskPrompt.prompt;
 
     const skillLoad: SkillLoadInfo | undefined =
       taskPrompt.requestedSkills.length > 0
@@ -214,9 +293,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     const piArgs = buildPiArgs(
       agent,
       promptTmpPath,
-      taskPrompt.prompt,
-      delegationMode,
-      forkSessionTmpPath,
+      effectivePrompt,
+      childSessionFile,
+      childSessionDir,
       effectiveThinking,
       overrideExtensions,
     );
@@ -226,10 +305,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
         ...result,
         exitCode: 1,
         stopReason: "error",
-        errorMessage:
-          "Failed to resolve Pi CLI script on Windows. Cannot start task.",
-        stderr:
-          "Failed to resolve Pi CLI script on Windows. Cannot start task.",
+        errorMessage: "Failed to resolve Pi CLI script on Windows. Cannot start task.",
+        stderr: "Failed to resolve Pi CLI script on Windows. Cannot start task.",
         failureCategory: "startup",
       };
     }
@@ -257,7 +334,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     return result;
   } finally {
     cleanupTempDir(promptTmpDir);
-    cleanupTempDir(forkSessionTmpDir);
   }
 }
 

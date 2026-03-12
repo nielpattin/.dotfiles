@@ -17,8 +17,8 @@ export function updateAgentDefaultsInFile(
   const parsed = parseAgentDocument(filePath);
   const frontmatter: Record<string, unknown> = { ...parsed.frontmatter };
 
-  if (updates.defaultSkills !== undefined) {
-    const normalized = normalizeStringList(updates.defaultSkills);
+  if (updates.skills !== undefined) {
+    const normalized = normalizeStringList(updates.skills);
     delete frontmatter.skill;
     if (!normalized || normalized.length === 0) {
       delete frontmatter.skills;
@@ -27,8 +27,8 @@ export function updateAgentDefaultsInFile(
     }
   }
 
-  if (updates.enabledExtensions !== undefined) {
-    const normalized = normalizeStringList(updates.enabledExtensions);
+  if (updates.extensions !== undefined) {
+    const normalized = normalizeStringList(updates.extensions);
     delete frontmatter.enabledExtensions;
     if (!normalized) {
       delete frontmatter.extensions;
@@ -37,8 +37,8 @@ export function updateAgentDefaultsInFile(
     }
   }
 
-  if (updates.defaultCwd !== undefined) {
-    const normalized = normalizeString(updates.defaultCwd);
+  if (updates.cwd !== undefined) {
+    const normalized = normalizeString(updates.cwd);
     delete frontmatter.defaultCwd;
     if (!normalized) {
       delete frontmatter.cwd;

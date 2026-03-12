@@ -15,7 +15,7 @@ export function processJsonLine(line: string, result: SingleResult): boolean {
   result.updatedAt = now;
 
   if (event.type === "session") {
-    if (typeof event.id === "string") result.sessionId = event.id;
+    if (typeof event.id === "string" && !result.sessionId) result.sessionId = event.id;
     if (typeof event.name === "string" && event.name.trim()) {
       result.sessionName = event.name.trim();
     }

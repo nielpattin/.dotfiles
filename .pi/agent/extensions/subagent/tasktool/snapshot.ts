@@ -1,15 +1,21 @@
 export interface SessionSnapshotSource {
   getHeader?: () => unknown;
   getEntries?: () => unknown;
+  getSessionFile?: () => string | undefined;
+}
+
+export interface SessionSnapshot {
+  header: Record<string, unknown>;
+  entries: Record<string, unknown>[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export function buildForkSessionSnapshotJsonl(
+export function captureForkSessionSnapshot(
   sessionManager: SessionSnapshotSource | undefined,
-): string | undefined {
+): SessionSnapshot | undefined {
   if (!sessionManager?.getHeader || !sessionManager.getEntries) return undefined;
 
   try {
@@ -17,12 +23,10 @@ export function buildForkSessionSnapshotJsonl(
     const entries = sessionManager.getEntries();
     if (!isRecord(header) || !Array.isArray(entries)) return undefined;
 
-    const lines = [JSON.stringify(header)];
-    for (const entry of entries) {
-      if (!isRecord(entry)) continue;
-      lines.push(JSON.stringify(entry));
-    }
-    return `${lines.join("\n")}\n`;
+    return {
+      header: { ...header },
+      entries: entries.filter(isRecord).map((entry) => ({ ...entry })),
+    };
   } catch {
     return undefined;
   }

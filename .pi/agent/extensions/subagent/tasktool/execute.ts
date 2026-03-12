@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AgentConfig } from "../agents/types.js";
 import {
   DEFAULT_DELEGATION_MODE,
@@ -8,10 +9,9 @@ import {
   getFinalOutput,
 } from "../types.js";
 import { executeParallel, type TaskExecutionOperation } from "./parallel.js";
-import { buildForkSessionSnapshotJsonl, type SessionSnapshotSource } from "./snapshot.js";
+import { captureForkSessionSnapshot, type SessionSnapshotSource } from "./snapshot.js";
 import { type PublicOperation } from "./schema.js";
 import { type BackgroundCompletionEvent } from "./background-completion.js";
-import { toPublicTaskId } from "./display-task-id.js";
 
 function getRequestedProjectAgents(
   agents: AgentConfig[],
@@ -74,7 +74,7 @@ function toResultStatus(result: SingleResult): "success" | "error" | "aborted" {
 
 function toBackgroundCompletionEvent(
   originatingSessionId: string,
-  fallback: { taskId: string; publicTaskId: string; agent: string; summary: string },
+  fallback: { sessionId: string; agent: string; summary: string },
   result: SingleResult,
 ): BackgroundCompletionEvent {
   const status = toResultStatus(result);
@@ -88,9 +88,8 @@ function toBackgroundCompletionEvent(
   );
 
   return {
-    taskId: result.taskId?.trim() || fallback.taskId,
-    publicTaskId: result.publicTaskId?.trim() || fallback.publicTaskId,
-    sessionId: originatingSessionId,
+    sessionId: result.sessionId?.trim() || fallback.sessionId,
+    originSessionId: originatingSessionId,
     agent: result.agent || fallback.agent,
     summary: result.summary || fallback.summary,
     status,
@@ -101,32 +100,33 @@ function toBackgroundCompletionEvent(
 
 function appendBackgroundTrackingDetails(
   details: SubagentDetails,
-  backgroundTasks: Array<{ taskId: string; publicTaskId: string; agent: string; summary: string }>,
+  backgroundTasks: Array<{ sessionId: string; taskId: string; siblingIndex: number; agent: string; summary: string }>,
 ): SubagentDetails {
   return {
     ...details,
     backgroundTasks: backgroundTasks.map((task) => ({
-      taskId: task.publicTaskId,
-      internalTaskId: task.taskId,
+      sessionId: task.sessionId,
+      taskId: task.taskId,
+      siblingIndex: task.siblingIndex,
       agent: task.agent,
       summary: task.summary,
       status: "queued" as const,
     })),
-    backgroundTrackingHint: "Use task_result with the public task id (optionally waitMs) or /tasks to inspect progress/completion.",
+    backgroundTrackingHint: "Use task_result with the child session id (optionally waitMs) or /tasks to inspect progress/completion.",
   };
 }
 
 export function buildBackgroundQueueToolText(
-  backgroundTasks: Array<{ publicTaskId: string; task: { agent: string } }>,
+  backgroundTasks: Array<{ sessionId: string; task: { agent: string } }>,
 ): string {
   const queued = backgroundTasks
-    .map((entry) => `${entry.publicTaskId} (${entry.task.agent})`)
+    .map((entry) => `${entry.sessionId} (${entry.task.agent})`)
     .join(", ");
-  return `Background task ids: ${queued}`;
+  return `Background task session ids: ${queued}`;
 }
 
 export interface ExecuteTaskToolParams {
-  toolCallId: string;
+  taskId: string;
   operations: PublicOperation[];
   agents: AgentConfig[];
   projectAgentsDir: string | null;
@@ -170,7 +170,7 @@ export interface ExecuteTaskToolParams {
     ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } },
   ) => void;
   upsertTask: (
-    taskId: string,
+    sessionId: string,
     partial: {
       agent: string;
       summary: string;
@@ -180,19 +180,23 @@ export interface ExecuteTaskToolParams {
       startedAt?: number;
       updatedAt?: number;
       finishedAt?: number;
-      sessionId?: string;
+      taskId?: string;
+      siblingIndex?: number;
       provider?: string;
       model?: string;
       error?: string;
+      sessionFile?: string;
     },
   ) => void;
   syncTaskWithResult: (
-    taskId: string,
+    sessionId: string,
     fallback: {
       agent: string;
       summary: string;
       task: string;
       delegationMode: DelegationMode;
+      taskId?: string;
+      siblingIndex?: number;
     },
     result: SingleResult,
   ) => void;
@@ -202,7 +206,7 @@ export interface ExecuteTaskToolParams {
 
 export async function executeTaskTool(params: ExecuteTaskToolParams) {
   const {
-    toolCallId,
+    taskId,
     operations,
     agents,
     projectAgentsDir,
@@ -276,16 +280,19 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
     }
   }
 
-  const forkSessionSnapshotJsonl = tasks.some((operation) => operation.delegationMode === "fork")
-    ? buildForkSessionSnapshotJsonl(ctx.sessionManager)
+  const parentSessionFile = ctx.sessionManager?.getSessionFile?.();
+  const forkSessionSnapshot = tasks.some((operation) => operation.delegationMode === "fork")
+    ? captureForkSessionSnapshot(ctx.sessionManager)
     : undefined;
 
   const indexedTasks = tasks.map((task, index) => {
-    const taskId = `${toolCallId}:${index + 1}`;
+    const sessionId = randomUUID();
+    const siblingIndex = index + 1;
     return {
       task,
+      sessionId,
       taskId,
-      publicTaskId: toPublicTaskId(taskId),
+      siblingIndex,
     };
   });
   const foreground = indexedTasks.filter((entry) => !entry.task.background);
@@ -293,13 +300,18 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
 
   const runBatch = (batch: typeof indexedTasks, options: { signal?: AbortSignal; onUpdate?: (partial: any) => void }) => {
     return executeParallel({
-      toolCallId,
+      taskId,
       tasks: batch.map((entry) => entry.task),
-      taskIds: batch.map((entry) => entry.taskId),
+      taskIdentities: batch.map((entry) => ({
+        sessionId: entry.sessionId,
+        taskId: entry.taskId,
+        siblingIndex: entry.siblingIndex,
+      })),
       inheritedThinking,
       agents,
       baseCwd,
-      forkSessionSnapshotJsonl,
+      parentSessionFile,
+      forkSessionSnapshot,
       signal: options.signal,
       onUpdate: options.onUpdate,
       ctx,
@@ -316,12 +328,15 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
   };
 
   const backgroundTaskRefs = background.map((entry) => ({
+    sessionId: entry.sessionId,
     taskId: entry.taskId,
-    publicTaskId: entry.publicTaskId,
+    siblingIndex: entry.siblingIndex,
     agent: entry.task.agent,
     summary: entry.task.summary,
   }));
-  const backgroundByTaskId = new Map(backgroundTaskRefs.map((entry) => [entry.taskId, entry]));
+  const backgroundBySessionId = new Map<string, (typeof backgroundTaskRefs)[number]>(
+    backgroundTaskRefs.map((entry) => [entry.sessionId as string, entry]),
+  );
 
   if (background.length > 0) {
     void runBatch(background, {})
@@ -332,8 +347,8 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
         if (!originatingSessionId || typeof onBackgroundCompletion !== "function") return;
 
         for (const single of details.results) {
-          const taskId = single.taskId?.trim();
-          const fallback = taskId ? backgroundByTaskId.get(taskId) : undefined;
+          const sessionId = single.sessionId?.trim();
+          const fallback = sessionId ? backgroundBySessionId.get(sessionId) : undefined;
           if (!fallback) continue;
           onBackgroundCompletion(
             toBackgroundCompletionEvent(originatingSessionId, fallback, single),
@@ -344,21 +359,22 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
         const message = error instanceof Error ? error.message : String(error);
         const finishedAt = Date.now();
         for (const entry of background) {
-          upsertTask(entry.taskId, {
+          upsertTask(entry.sessionId, {
             agent: entry.task.agent,
             summary: entry.task.summary,
             task: entry.task.task,
             status: "error",
             delegationMode: entry.task.delegationMode,
+            taskId: entry.taskId,
+            siblingIndex: entry.siblingIndex,
             updatedAt: finishedAt,
             error: `Background execution failed: ${message}`,
           });
 
           if (originatingSessionId && typeof onBackgroundCompletion === "function") {
             onBackgroundCompletion({
-              taskId: entry.taskId,
-              publicTaskId: entry.publicTaskId,
-              sessionId: originatingSessionId,
+              sessionId: entry.sessionId,
+              originSessionId: originatingSessionId,
               agent: entry.task.agent,
               summary: entry.task.summary,
               status: "error",

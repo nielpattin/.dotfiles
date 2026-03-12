@@ -39,35 +39,29 @@ function elapsed(startedAt: number, endedAt?: number): string {
   return `${hour}h ${min % 60}m`;
 }
 
-function parseTaskSuffix(taskId: string): { prefix: string; index: number } | undefined {
-  const match = /^(.*):(\d+)$/.exec(taskId.trim());
-  if (!match) return undefined;
-  return {
-    prefix: match[1] ?? "",
-    index: Number.parseInt(match[2] ?? "", 10),
-  };
-}
+function getSiblingOrderedSessionIds(tasks: TaskRef[], sessionId: string): string[] | undefined {
+  const selected = tasks.find((task) => task.sessionId === sessionId);
+  const groupKey = selected?.taskId;
+  if (!groupKey) return undefined;
 
-function getSiblingOrderedTaskIds(tasks: TaskRef[], taskId: string): string[] | undefined {
-  const parsed = parseTaskSuffix(taskId);
-  if (!parsed) return undefined;
+  const siblingSessionIds = tasks
+    .filter((task) => task.taskId === groupKey)
+    .sort((a, b) => {
+      const ai = a.siblingIndex ?? Number.MAX_SAFE_INTEGER;
+      const bi = b.siblingIndex ?? Number.MAX_SAFE_INTEGER;
+      if (ai !== bi) return ai - bi;
+      return a.startedAt - b.startedAt;
+    })
+    .map((task) => task.sessionId);
 
-  const siblingTaskIds = tasks
-    .map((task) => ({ taskId: task.taskId, parsed: parseTaskSuffix(task.taskId) }))
-    .filter((entry): entry is { taskId: string; parsed: { prefix: string; index: number } } =>
-      Boolean(entry.parsed && entry.parsed.prefix === parsed.prefix),
-    )
-    .sort((a, b) => a.parsed.index - b.parsed.index)
-    .map((entry) => entry.taskId);
-
-  return siblingTaskIds.length > 1 ? siblingTaskIds : undefined;
+  return siblingSessionIds.length > 1 ? siblingSessionIds : undefined;
 }
 
 export class TasksPanel {
   private mode: Mode = "list";
   private selectedIndex = 0;
   private listScrollOffset = 0;
-  private selectedTaskId: string | undefined;
+  private selectedSessionId: string | undefined;
   private detailAutoScrollEnabled = true;
   private readonly detailScrollOffsets = new Map<string, number>();
   private readonly detailMaxScrollOffsets = new Map<string, number>();
@@ -126,7 +120,7 @@ export class TasksPanel {
     if (matchesKey(data, "return") || matchesKey(data, "enter")) {
       const selected = tasks[this.selectedIndex];
       if (!selected) return;
-      this.selectedTaskId = selected.taskId;
+      this.selectedSessionId = selected.sessionId;
       this.mode = "detail";
       this.refresh();
     }
@@ -140,82 +134,82 @@ export class TasksPanel {
       return;
     }
 
-    if (!this.selectedTaskId || tasks.length === 0) return;
+    if (!this.selectedSessionId || tasks.length === 0) return;
 
-    const index = tasks.findIndex((task) => task.taskId === this.selectedTaskId);
+    const index = tasks.findIndex((task) => task.sessionId === this.selectedSessionId);
     if (index < 0) return;
 
-    const taskId = this.selectedTaskId;
-    const maxScroll = this.detailMaxScrollOffsets.get(taskId) ?? 0;
+    const sessionId = this.selectedSessionId;
+    const maxScroll = this.detailMaxScrollOffsets.get(sessionId) ?? 0;
 
     if (this.isAutoScrollToggleKey(data)) {
       this.detailAutoScrollEnabled = !this.detailAutoScrollEnabled;
       if (this.detailAutoScrollEnabled) {
-        this.setDetailScrollOffset(taskId, maxScroll, maxScroll);
+        this.setDetailScrollOffset(sessionId, maxScroll, maxScroll);
       }
       this.refresh();
       return;
     }
 
     if (!this.detailAutoScrollEnabled && matchesKey(data, "up")) {
-      this.setDetailScrollOffset(taskId, this.getDetailScrollOffset(taskId) - 1, maxScroll);
+      this.setDetailScrollOffset(sessionId, this.getDetailScrollOffset(sessionId) - 1, maxScroll);
       this.refresh();
       return;
     }
 
     if (!this.detailAutoScrollEnabled && matchesKey(data, "down")) {
-      this.setDetailScrollOffset(taskId, this.getDetailScrollOffset(taskId) + 1, maxScroll);
+      this.setDetailScrollOffset(sessionId, this.getDetailScrollOffset(sessionId) + 1, maxScroll);
       this.refresh();
       return;
     }
 
     if (!this.detailAutoScrollEnabled && this.isPageUpKey(data)) {
-      this.setDetailScrollOffset(taskId, this.getDetailScrollOffset(taskId) - MAX_DETAIL_TRANSCRIPT_ROWS, maxScroll);
+      this.setDetailScrollOffset(sessionId, this.getDetailScrollOffset(sessionId) - MAX_DETAIL_TRANSCRIPT_ROWS, maxScroll);
       this.refresh();
       return;
     }
 
     if (!this.detailAutoScrollEnabled && this.isPageDownKey(data)) {
-      this.setDetailScrollOffset(taskId, this.getDetailScrollOffset(taskId) + MAX_DETAIL_TRANSCRIPT_ROWS, maxScroll);
+      this.setDetailScrollOffset(sessionId, this.getDetailScrollOffset(sessionId) + MAX_DETAIL_TRANSCRIPT_ROWS, maxScroll);
       this.refresh();
       return;
     }
 
     if (!this.detailAutoScrollEnabled && this.isHomeKey(data)) {
-      this.setDetailScrollOffset(taskId, 0, maxScroll);
+      this.setDetailScrollOffset(sessionId, 0, maxScroll);
       this.refresh();
       return;
     }
 
     if (!this.detailAutoScrollEnabled && this.isEndKey(data)) {
-      this.setDetailScrollOffset(taskId, maxScroll, maxScroll);
+      this.setDetailScrollOffset(sessionId, maxScroll, maxScroll);
       this.refresh();
       return;
     }
 
     if (matchesKey(data, "left") || matchesKey(data, "right")) {
-      const siblingTaskIds = getSiblingOrderedTaskIds(tasks, this.selectedTaskId);
+      const siblingSessionIds = getSiblingOrderedSessionIds(tasks, this.selectedSessionId);
       const delta = matchesKey(data, "right") ? 1 : -1;
 
-      let nextTaskId: string | undefined;
-      if (siblingTaskIds) {
-        const siblingIndex = siblingTaskIds.findIndex((candidate) => candidate === this.selectedTaskId);
+      let nextSessionId: string | undefined;
+      if (siblingSessionIds) {
+        const siblingIndex = siblingSessionIds.findIndex((candidate) => candidate === this.selectedSessionId);
         if (siblingIndex >= 0) {
-          const nextSiblingIndex = Math.max(0, Math.min(siblingTaskIds.length - 1, siblingIndex + delta));
-          nextTaskId = siblingTaskIds[nextSiblingIndex];
+          const nextSiblingIndex = Math.max(0, Math.min(siblingSessionIds.length - 1, siblingIndex + delta));
+          nextSessionId = siblingSessionIds[nextSiblingIndex];
         }
       }
 
-      if (!nextTaskId) {
+      if (!nextSessionId) {
         const nextIndex = Math.max(0, Math.min(tasks.length - 1, index + delta));
-        nextTaskId = tasks[nextIndex]?.taskId;
+        nextSessionId = tasks[nextIndex]?.sessionId;
       }
 
-      if (!nextTaskId) return;
-      const nextIndex = tasks.findIndex((task) => task.taskId === nextTaskId);
+      if (!nextSessionId) return;
+      const nextIndex = tasks.findIndex((task) => task.sessionId === nextSessionId);
       if (nextIndex < 0) return;
 
-      this.selectedTaskId = nextTaskId;
+      this.selectedSessionId = nextSessionId;
       this.selectedIndex = nextIndex;
       this.ensureListSelectionVisible(tasks.length);
       this.refresh();
@@ -274,7 +268,7 @@ export class TasksPanel {
     const th = this.theme;
     const marker = selected ? th.fg("accent", "❯") : th.fg("dim", "•");
     const status = statusLabel(th, task.status, selected);
-    const meta = `${th.fg("muted", task.publicTaskId)} ${th.fg("borderMuted", "·")} ${task.agent} ${th.fg("borderMuted", "·")} ${status} ${th.fg("borderMuted", "·")} ${elapsed(task.startedAt, task.finishedAt)} ${th.fg("borderMuted", "·")} ${task.delegationMode}`;
+    const meta = `${th.fg("muted", task.sessionId)} ${th.fg("borderMuted", "·")} ${task.agent} ${th.fg("borderMuted", "·")} ${status} ${th.fg("borderMuted", "·")} ${elapsed(task.startedAt, task.finishedAt)} ${th.fg("borderMuted", "·")} ${task.delegationMode}`;
     const summary = oneLine(task.summary, 44);
     const line = selected
       ? ` ${marker} ${th.bold(meta)} ${th.fg("dim", "—")} ${th.bold(summary)}`
@@ -284,7 +278,7 @@ export class TasksPanel {
 
   private renderDetail(width: number): string[] {
     const tasks = this.store.listTasks();
-    const selectedId = this.selectedTaskId ?? tasks[this.selectedIndex]?.taskId;
+    const selectedId = this.selectedSessionId ?? tasks[this.selectedIndex]?.sessionId;
     const th = this.theme;
 
     const w = Math.max(90, Math.min(width, 148));
@@ -307,23 +301,26 @@ export class TasksPanel {
       return lines;
     }
 
-    const currentIndex = tasks.findIndex((task) => task.taskId === detail.taskId);
-    const parsed = parseTaskSuffix(detail.taskId);
-    const siblingTasks = parsed
+    const currentIndex = tasks.findIndex((task) => task.sessionId === detail.sessionId);
+    const siblingTasks = detail.ref.taskId
       ? tasks
-        .map((task) => ({ task, parsed: parseTaskSuffix(task.taskId) }))
-        .filter((entry): entry is { task: TaskRef; parsed: { prefix: string; index: number } } =>
-          Boolean(entry.parsed && entry.parsed.prefix === parsed.prefix),
-        )
-        .sort((a, b) => a.parsed.index - b.parsed.index)
+        .filter((task) => task.taskId === detail.ref.taskId)
+        .sort((a, b) => {
+          const ai = a.siblingIndex ?? Number.MAX_SAFE_INTEGER;
+          const bi = b.siblingIndex ?? Number.MAX_SAFE_INTEGER;
+          if (ai !== bi) return ai - bi;
+          return a.startedAt - b.startedAt;
+        })
       : [];
-    const siblingIndex = siblingTasks.findIndex((entry) => entry.task.taskId === detail.taskId);
+    const siblingIndex = siblingTasks.findIndex((entry) => entry.sessionId === detail.sessionId);
     const idxText = siblingIndex >= 0
       ? `${siblingIndex + 1}/${siblingTasks.length}`
       : currentIndex >= 0
       ? `${currentIndex + 1}/${tasks.length}`
       : "-/-";
-    const sessionId = detail.ref.sessionId || detail.result?.sessionId || "-";
+    const sessionId = detail.sessionId || detail.result?.sessionId || "-";
+    const taskId = detail.ref.taskId || detail.result?.taskId || "-";
+    const siblingIndexLabel = typeof detail.ref.siblingIndex === "number" ? String(detail.ref.siblingIndex) : "-";
     const model = formatModelDisplay(detail.ref.model, detail.ref.provider) || "-";
 
     lines.push(
@@ -332,19 +329,19 @@ export class TasksPanel {
       ),
     );
     lines.push(
-      chrome.row(` ${th.fg("dim", "ref")} ${th.fg("muted", detail.publicTaskId)} ${th.fg("borderMuted", "•")} ${th.fg("dim", "model")} ${th.fg("muted", model)} ${th.fg("borderMuted", "•")} ${th.fg("dim", "session")} ${th.fg("muted", sessionId)}`),
+      chrome.row(` ${th.fg("dim", "session")} ${th.fg("muted", sessionId)} ${th.fg("borderMuted", "•")} ${th.fg("dim", "taskId")} ${th.fg("muted", taskId)} ${th.fg("borderMuted", "•")} ${th.fg("dim", "sibling")} ${th.fg("muted", siblingIndexLabel)} ${th.fg("borderMuted", "•")} ${th.fg("dim", "model")} ${th.fg("muted", model)}`),
     );
 
     lines.push(chrome.strongDivider());
 
     const transcriptLines = this.renderDetailTranscriptLines(detail, innerWidth);
     const maxScroll = Math.max(0, transcriptLines.length - MAX_DETAIL_TRANSCRIPT_ROWS);
-    this.detailMaxScrollOffsets.set(detail.taskId, maxScroll);
+    this.detailMaxScrollOffsets.set(detail.sessionId, maxScroll);
 
     const scrollOffset = this.detailAutoScrollEnabled
       ? maxScroll
-      : Math.min(this.getDetailScrollOffset(detail.taskId), maxScroll);
-    this.detailScrollOffsets.set(detail.taskId, scrollOffset);
+      : Math.min(this.getDetailScrollOffset(detail.sessionId), maxScroll);
+    this.detailScrollOffsets.set(detail.sessionId, scrollOffset);
 
     const start = scrollOffset;
     const end = Math.min(transcriptLines.length, start + MAX_DETAIL_TRANSCRIPT_ROWS);
@@ -375,13 +372,13 @@ export class TasksPanel {
     return renderTranscriptLines(detail, innerWidth, this.theme);
   }
 
-  private getDetailScrollOffset(taskId: string): number {
-    return this.detailScrollOffsets.get(taskId) ?? 0;
+  private getDetailScrollOffset(sessionId: string): number {
+    return this.detailScrollOffsets.get(sessionId) ?? 0;
   }
 
-  private setDetailScrollOffset(taskId: string, nextOffset: number, maxScroll: number): void {
+  private setDetailScrollOffset(sessionId: string, nextOffset: number, maxScroll: number): void {
     const clamped = Math.max(0, Math.min(nextOffset, Math.max(0, maxScroll)));
-    this.detailScrollOffsets.set(taskId, clamped);
+    this.detailScrollOffsets.set(sessionId, clamped);
   }
 
   private isAutoScrollToggleKey(data: string): boolean {

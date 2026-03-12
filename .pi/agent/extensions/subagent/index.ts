@@ -116,7 +116,7 @@ export default function (pi: ExtensionAPI) {
       if (now - ts > completionDedupTtlMs) deliveredCompletionKeys.delete(key);
     }
 
-    const key = `${event.sessionId}:${event.taskId}:${event.finishedAt}:${event.status}`;
+    const key = `${event.originSessionId}:${event.sessionId}:${event.finishedAt}:${event.status}`;
     if (deliveredCompletionKeys.has(key)) return false;
     deliveredCompletionKeys.set(key, now);
     return true;
@@ -147,15 +147,15 @@ export default function (pi: ExtensionAPI) {
     if (!sessionId) return;
     const completions = backgroundInbox.drainSession(sessionId);
     for (const completion of completions) {
-      if (completion.sessionId !== sessionId) continue;
+      if (completion.originSessionId !== sessionId) continue;
       pushCompletionTurn(completion);
     }
   };
 
   const enqueueBackgroundCompletion = (event: BackgroundCompletionEvent) => {
-    if (!event.sessionId) return;
+    if (!event.originSessionId) return;
     backgroundInbox.enqueue(event);
-    if (currentSessionId && event.sessionId === currentSessionId) {
+    if (currentSessionId && event.originSessionId === currentSessionId) {
       flushCompletionInboxForSession(currentSessionId);
     }
   };
@@ -252,7 +252,7 @@ Rules:
 - \`background\` is optional per operation (\`boolean\`, defaults to \`false\`)
 - payload \`skills\`, \`extension\`, and \`extensions\` are rejected
 
-Use \`/agents\` for per-agent defaults like extensions and default skills, \`/tasks\` to inspect delegated task sessions, and \`task_result\` for programmatic status/result lookup by public task id.
+Use \`/agents\` for per-agent settings like extensions and skills, \`/tasks\` to inspect delegated task sessions, and \`task_result\` for programmatic status/result lookup by child session id.
 Background completions are pushed into the originating session, trigger a follow-up turn automatically, and use a task_result-first handoff.
 `,
     };
@@ -286,7 +286,7 @@ Background completions are pushed into the originating session, trigger a follow
         "  - skills / extension / extensions are rejected in payload",
         "",
         "Use /agents for per-agent defaults (skills, extensions).",
-        "Use task_result for programmatic polling/retrieval by public task id (internal id also accepted).",
+        "Use task_result for programmatic polling/retrieval by child session id.",
         "Background completions are pushed into the originating session, trigger a follow-up turn automatically, and use a task_result-first handoff.",
       ].join("\n"),
       parameters: TaskParams,
@@ -310,9 +310,10 @@ Background completions are pushed into the originating session, trigger a follow
         }
 
         const originatingSessionId = resolveStableSessionId(ctx);
+        const taskId = toolCallId;
 
         return executeTaskTool({
-          toolCallId,
+          taskId,
           operations: validated.value.operations,
           agents,
           projectAgentsDir: discovery.projectAgentsDir,
@@ -343,26 +344,26 @@ Background completions are pushed into the originating session, trigger a follow
     pi.registerTool({
       name: TASK_RESULT_TOOL_NAME,
       label: "Task Result",
-      description: "Retrieve delegated task status/results by public task id (or internal id), with optional wait/polling.",
+      description: "Retrieve delegated task status/results by child session id, with optional wait/polling.",
       parameters: TaskResultParams,
       async execute(_toolCallId, params, signal, _onUpdate, _ctx): Promise<any> {
-        const taskRef = typeof params.taskId === "string" ? params.taskId.trim() : "";
-        if (!taskRef) {
+        const requestedSessionId = typeof params.sessionId === "string" ? params.sessionId.trim() : "";
+        if (!requestedSessionId) {
           return {
-            content: [{ type: "text" as const, text: "`taskId` is required." }],
-            details: { found: false, taskRef: "", taskId: "", publicTaskId: "", done: false, ref: undefined, result: undefined },
+            content: [{ type: "text" as const, text: "`sessionId` is required." }],
+            details: { found: false, requestedSessionId: "", sessionId: "", done: false, ref: undefined, result: undefined },
             isError: true,
           };
         }
 
         const waitMs = normalizeWaitMs(params.waitMs);
         const pollIntervalMs = normalizePollIntervalMs(params.pollIntervalMs);
-        const detail = await waitForTaskDetail(taskStore, taskRef, waitMs, pollIntervalMs, signal);
+        const detail = await waitForTaskDetail(taskStore, requestedSessionId, waitMs, pollIntervalMs, signal);
 
         if (!detail) {
           return {
-            content: [{ type: "text" as const, text: `Task not found: ${taskRef}` }],
-            details: { found: false, taskRef, taskId: taskRef, publicTaskId: undefined, done: false, ref: undefined, result: undefined },
+            content: [{ type: "text" as const, text: `Task not found: ${requestedSessionId}` }],
+            details: { found: false, requestedSessionId, sessionId: requestedSessionId, done: false, ref: undefined, result: undefined },
             isError: true,
           };
         }
@@ -383,8 +384,8 @@ Background completions are pushed into the originating session, trigger a follow
         const usableForReply = handoffState === "ready";
 
         const summaryText = done
-          ? `Task ${detail.publicTaskId}: ${detail.ref.status}${waitNote} • ${failure ? "failed" : "completed"} • ${outputSnippet || "no output"}`
-          : `Task ${detail.publicTaskId}: ${detail.ref.status}${waitNote} • still running. Use waitMs or check /tasks.`;
+          ? `Task ${detail.sessionId}: ${detail.ref.status}${waitNote} • ${failure ? "failed" : "completed"} • ${outputSnippet || "no output"}`
+          : `Task ${detail.sessionId}: ${detail.ref.status}${waitNote} • still running. Use waitMs or check /tasks.`;
 
         return {
           content: [{
@@ -394,14 +395,9 @@ Background completions are pushed into the originating session, trigger a follow
           details: {
             found: true,
             done,
-            taskRef,
-            taskId: detail.taskId,
-            publicTaskId: detail.publicTaskId,
-            ref: {
-              ...detail.ref,
-              taskId: detail.publicTaskId,
-              internalTaskId: detail.taskId,
-            },
+            requestedSessionId,
+            sessionId: detail.sessionId,
+            ref: detail.ref,
             result: detail.result,
             handoff: {
               state: handoffState,

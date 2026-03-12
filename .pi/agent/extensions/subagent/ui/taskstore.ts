@@ -1,5 +1,3 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import {
   DEFAULT_DELEGATION_MODE,
   emptyUsage,
@@ -8,14 +6,19 @@ import {
   getFailureCategory,
 } from "../types.js";
 import { SUBAGENT_TOOL_NAME } from "../constants.js";
-import { toPublicTaskId } from "../tasktool/display-task-id.js";
-import { deriveTaskDirectory, loadTaskFile, persistTaskFile } from "./taskfiles.js";
+import {
+  listTaskMetadata,
+  loadTaskResultFromSession,
+  persistTaskMetadata,
+  type TaskMetadataRecord,
+} from "./taskfiles.js";
 
 export type TaskState = "queued" | "running" | "success" | "error" | "aborted";
 
 export interface TaskRef {
-  taskId: string;
-  publicTaskId: string;
+  sessionId: string;
+  taskId?: string;
+  siblingIndex?: number;
   agent: string;
   summary: string;
   task: string;
@@ -24,16 +27,14 @@ export interface TaskRef {
   startedAt: number;
   updatedAt: number;
   finishedAt?: number;
-  sessionId?: string;
   provider?: string;
   model?: string;
   error?: string;
-  taskFile?: string;
+  sessionFile?: string;
 }
 
 export interface TaskDetail {
-  taskId: string;
-  publicTaskId: string;
+  sessionId: string;
   ref: TaskRef;
   result?: SingleResult;
 }
@@ -71,6 +72,9 @@ function normalizeSingleResult(
   if (!isRecord(raw)) return undefined;
 
   const partial = raw as Partial<SingleResult>;
+  const legacyTaskId = typeof (raw as { toolCallId?: unknown }).toolCallId === "string"
+    ? (raw as { toolCallId: string }).toolCallId
+    : undefined;
   const startedAt = toTimestamp(partial.startedAt) ?? fallbackTimestamp;
   const updatedAt = toTimestamp(partial.updatedAt) ?? startedAt;
   const usage = isRecord(partial.usage)
@@ -86,8 +90,9 @@ function normalizeSingleResult(
     : emptyUsage();
 
   return {
-    taskId: typeof partial.taskId === "string" ? partial.taskId : undefined,
-    publicTaskId: typeof partial.publicTaskId === "string" ? partial.publicTaskId : undefined,
+    sessionId: typeof partial.sessionId === "string" ? partial.sessionId : undefined,
+    taskId: typeof partial.taskId === "string" ? partial.taskId : legacyTaskId,
+    siblingIndex: typeof partial.siblingIndex === "number" ? partial.siblingIndex : undefined,
     agent: typeof partial.agent === "string" ? partial.agent : "unknown",
     agentSource: partial.agentSource === "user" || partial.agentSource === "project" || partial.agentSource === "unknown"
       ? partial.agentSource
@@ -101,9 +106,8 @@ function normalizeSingleResult(
     usage,
     startedAt,
     updatedAt,
-    sessionId: typeof partial.sessionId === "string" ? partial.sessionId : undefined,
     sessionName: typeof partial.sessionName === "string" ? partial.sessionName : undefined,
-    taskFile: typeof partial.taskFile === "string" ? partial.taskFile : undefined,
+    sessionFile: typeof partial.sessionFile === "string" ? partial.sessionFile : undefined,
     skillLoad: partial.skillLoad,
     activeTool: partial.activeTool,
     lastTool: partial.lastTool,
@@ -123,22 +127,20 @@ function normalizeSingleResult(
 }
 
 interface HydratedTaskCandidate {
-  taskId: string;
-  fallback: Pick<TaskRef, "agent" | "summary" | "task" | "delegationMode">;
+  sessionId: string;
+  fallback: Pick<TaskRef, "agent" | "summary" | "task" | "delegationMode" | "taskId" | "siblingIndex">;
   result: SingleResult;
   updatedAt: number;
-  hydrateDetail: boolean;
 }
 
 function extractHydratedTaskCandidates(branchEntries: unknown[]): HydratedTaskCandidate[] {
   const candidates: HydratedTaskCandidate[] = [];
 
-  for (const [entryIndex, rawEntry] of branchEntries.entries()) {
+  for (const rawEntry of branchEntries) {
     if (!isRecord(rawEntry) || rawEntry.type !== "message" || !isRecord(rawEntry.message)) continue;
 
     const rawMessage = rawEntry.message;
     if (rawMessage.role !== "toolResult" || rawMessage.toolName !== SUBAGENT_TOOL_NAME) continue;
-
     if (!isRecord(rawMessage.details) || !Array.isArray(rawMessage.details.results)) continue;
 
     const details = rawMessage.details as { delegationMode?: unknown; results: unknown[] };
@@ -146,36 +148,29 @@ function extractHydratedTaskCandidates(branchEntries: unknown[]): HydratedTaskCa
       ? details.delegationMode
       : DEFAULT_DELEGATION_MODE;
 
-    const messageTimestamp =
-      toTimestamp(rawMessage.timestamp)
-      ?? toTimestamp(rawEntry.timestamp)
-      ?? Date.now();
+    const messageTimestamp = toTimestamp(rawMessage.timestamp) ?? toTimestamp(rawEntry.timestamp) ?? Date.now();
 
-    const toolCallId = typeof rawMessage.toolCallId === "string" ? rawMessage.toolCallId : undefined;
-
-    for (const [resultIndex, rawResult] of details.results.entries()) {
+    for (const rawResult of details.results) {
       const normalized = normalizeSingleResult(rawResult, fallbackDelegationMode, messageTimestamp);
-      if (!normalized) continue;
+      if (!normalized?.sessionId?.trim()) continue;
 
-      const generatedTaskId = toolCallId
-        ? `${toolCallId}:${resultIndex + 1}`
-        : `hydrated:${entryIndex + 1}:${resultIndex + 1}`;
-      const taskId = normalized.taskId?.trim() || generatedTaskId;
-      normalized.taskId = taskId;
+      const sessionId = normalized.sessionId.trim();
+      normalized.sessionId = sessionId;
 
       const fallback = {
         agent: normalized.agent,
         summary: normalized.summary,
         task: normalized.task,
         delegationMode: normalized.delegationMode ?? fallbackDelegationMode,
+        taskId: normalized.taskId,
+        siblingIndex: normalized.siblingIndex,
       };
 
       candidates.push({
-        taskId,
+        sessionId,
         fallback,
         result: normalized,
         updatedAt: normalized.updatedAt,
-        hydrateDetail: !normalized.taskFile,
       });
     }
   }
@@ -183,98 +178,44 @@ function extractHydratedTaskCandidates(branchEntries: unknown[]): HydratedTaskCa
   return candidates;
 }
 
-function extractHydratedTaskFileCandidates(sessionFile: string | undefined): HydratedTaskCandidate[] {
-  if (!sessionFile) return [];
-
-  const taskDir = deriveTaskDirectory(sessionFile);
-  if (!fs.existsSync(taskDir)) return [];
-
-  const candidates: HydratedTaskCandidate[] = [];
-  const entries = fs.readdirSync(taskDir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".jsonl")) continue;
-
-    const taskFile = path.join(taskDir, entry.name);
-    const loaded = loadTaskFile(taskFile);
-    if (!loaded) continue;
-
-    let decodedTaskId = entry.name.slice(0, -".jsonl".length);
-    try {
-      decodedTaskId = decodeURIComponent(decodedTaskId);
-    } catch {
-      // keep encoded id fallback
-    }
-    const taskId = loaded.taskId?.trim() || decodedTaskId;
-    loaded.taskId = taskId;
-    loaded.taskFile = loaded.taskFile || taskFile;
-
-    const fallbackDelegationMode = loaded.delegationMode ?? DEFAULT_DELEGATION_MODE;
-    const fallback = {
-      agent: loaded.agent || "unknown",
-      summary: loaded.summary || "",
-      task: loaded.task || "",
-      delegationMode: fallbackDelegationMode,
-    };
-
-    candidates.push({
-      taskId,
-      fallback,
-      result: loaded,
-      updatedAt: loaded.updatedAt || loaded.startedAt || Date.now(),
-      hydrateDetail: true,
-    });
-  }
-
-  return candidates;
+function taskMetadataFromRef(ref: TaskRef): TaskMetadataRecord {
+  return {
+    type: "subagent_task_metadata",
+    version: 3,
+    sessionId: ref.sessionId,
+    taskId: ref.taskId,
+    siblingIndex: ref.siblingIndex,
+    agent: ref.agent,
+    summary: ref.summary,
+    task: ref.task,
+    status: ref.status,
+    delegationMode: ref.delegationMode,
+    startedAt: ref.startedAt,
+    updatedAt: ref.updatedAt,
+    finishedAt: ref.finishedAt,
+    provider: ref.provider,
+    model: ref.model,
+    error: ref.error,
+    sessionFile: ref.sessionFile,
+  };
 }
 
 export function createTaskStore() {
   const refs = new Map<string, TaskRef>();
   const details = new Map<string, SingleResult>();
-  const publicToInternalTaskId = new Map<string, string>();
-  const internalToPublicTaskId = new Map<string, string>();
   let parentSessionFile: string | undefined;
 
-  const ensurePublicTaskId = (taskId: string): string => {
-    const existing = internalToPublicTaskId.get(taskId);
-    if (existing) return existing;
+  const upsertTask = (sessionId: string, partial: Partial<TaskRef> & Pick<TaskRef, "agent" | "summary" | "task" | "status">) => {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) return;
 
-    const base = toPublicTaskId(taskId);
-    let next = base;
-    let collisionIndex = 2;
-    while (true) {
-      const occupiedBy = publicToInternalTaskId.get(next);
-      if (!occupiedBy || occupiedBy === taskId) break;
-      next = `${base}-${collisionIndex}`;
-      collisionIndex += 1;
-    }
-
-    internalToPublicTaskId.set(taskId, next);
-    publicToInternalTaskId.set(next, taskId);
-    return next;
-  };
-
-  const resolveTaskId = (taskRef: string): string | undefined => {
-    const normalized = typeof taskRef === "string" ? taskRef.trim() : "";
-    if (!normalized) return undefined;
-    if (refs.has(normalized)) return normalized;
-    return publicToInternalTaskId.get(normalized);
-  };
-
-  const getPublicTaskId = (taskRef: string): string | undefined => {
-    const taskId = resolveTaskId(taskRef);
-    if (!taskId) return undefined;
-    return ensurePublicTaskId(taskId);
-  };
-
-  const upsertTask = (taskId: string, partial: Partial<TaskRef> & Pick<TaskRef, "agent" | "summary" | "task" | "status">) => {
     const now = Date.now();
-    const existing = refs.get(taskId);
-    const publicTaskId = existing?.publicTaskId ?? ensurePublicTaskId(taskId);
+    const existing = refs.get(normalizedSessionId);
+
     const next: TaskRef = {
-      taskId,
-      publicTaskId,
+      sessionId: normalizedSessionId,
+      taskId: partial.taskId ?? existing?.taskId,
+      siblingIndex: partial.siblingIndex ?? existing?.siblingIndex,
       agent: partial.agent,
       summary: partial.summary,
       task: partial.task,
@@ -283,11 +224,10 @@ export function createTaskStore() {
       startedAt: partial.startedAt ?? existing?.startedAt ?? now,
       updatedAt: partial.updatedAt ?? now,
       finishedAt: partial.finishedAt ?? existing?.finishedAt,
-      sessionId: partial.sessionId ?? existing?.sessionId,
       provider: partial.provider ?? existing?.provider,
       model: partial.model ?? existing?.model,
       error: partial.error ?? existing?.error,
-      taskFile: partial.taskFile ?? existing?.taskFile,
+      sessionFile: partial.sessionFile ?? existing?.sessionFile,
     };
 
     if (next.status === "queued" || next.status === "running") {
@@ -297,23 +237,26 @@ export function createTaskStore() {
       next.finishedAt = now;
     }
 
-    refs.set(taskId, next);
+    refs.set(normalizedSessionId, next);
+    persistTaskMetadata(parentSessionFile, taskMetadataFromRef(next));
   };
 
   const syncTaskWithResult = (
-    taskId: string,
-    fallback: Pick<TaskRef, "agent" | "summary" | "task" | "delegationMode">,
+    fallbackSessionId: string,
+    fallback: Pick<TaskRef, "agent" | "summary" | "task" | "delegationMode" | "taskId" | "siblingIndex">,
     result: SingleResult,
   ) => {
+    const sessionId = (result.sessionId?.trim() || fallbackSessionId.trim());
+    if (!sessionId) return;
+
+    result.sessionId = sessionId;
+    if (!result.taskId && fallback.taskId) result.taskId = fallback.taskId;
+    if (!result.siblingIndex && fallback.siblingIndex) result.siblingIndex = fallback.siblingIndex;
+
     const status = toTaskState(result);
     const now = Date.now();
-    const publicTaskId = ensurePublicTaskId(taskId);
-    result.publicTaskId = result.publicTaskId || publicTaskId;
-    const taskFile = persistTaskFile(parentSessionFile, taskId, result) ?? result.taskFile;
-    if (taskFile) result.taskFile = taskFile;
-    details.set(taskId, result);
 
-    upsertTask(taskId, {
+    upsertTask(sessionId, {
       agent: result.agent || fallback.agent,
       summary: result.summary || fallback.summary,
       task: result.task || fallback.task,
@@ -322,39 +265,79 @@ export function createTaskStore() {
       startedAt: result.startedAt,
       updatedAt: result.updatedAt || now,
       finishedAt: status === "running" ? undefined : (result.updatedAt || now),
-      sessionId: result.sessionId,
+      taskId: result.taskId ?? fallback.taskId,
+      siblingIndex: result.siblingIndex ?? fallback.siblingIndex,
       provider: result.provider,
       model: result.model,
-      taskFile,
+      sessionFile: result.sessionFile,
       error: status === "error" || status === "aborted"
         ? result.errorMessage || result.stderr || result.stopReason || status
         : undefined,
     });
+
+    if (result.sessionFile) {
+      details.delete(sessionId);
+    } else {
+      details.set(sessionId, result);
+    }
   };
 
   const hydrateFromBranch = (branchEntries: unknown[]): number => {
     clear();
 
-    const latestByTaskId = new Map<string, HydratedTaskCandidate>();
+    const latestBySessionId = new Map<string, HydratedTaskCandidate>();
     const mergedCandidates = [
       ...extractHydratedTaskCandidates(branchEntries),
-      ...extractHydratedTaskFileCandidates(parentSessionFile),
+      ...listTaskMetadata(parentSessionFile).map((metadata) => {
+        const result = loadTaskResultFromSession(metadata) ?? {
+          sessionId: metadata.sessionId,
+          taskId: metadata.taskId,
+          siblingIndex: metadata.siblingIndex,
+          agent: metadata.agent,
+          agentSource: "unknown" as const,
+          task: metadata.task,
+          summary: metadata.summary,
+          delegationMode: metadata.delegationMode,
+          exitCode: metadata.status === "success" ? 0 : (metadata.status === "running" || metadata.status === "queued" ? -1 : 1),
+          messages: [],
+          stderr: metadata.error || "",
+          usage: emptyUsage(),
+          startedAt: metadata.startedAt,
+          updatedAt: metadata.updatedAt,
+          sessionFile: metadata.sessionFile,
+          model: metadata.model,
+          provider: metadata.provider,
+          stopReason: metadata.status === "aborted" ? "aborted" : undefined,
+          errorMessage: metadata.error,
+        } satisfies SingleResult;
+
+        return {
+          sessionId: metadata.sessionId,
+          fallback: {
+            agent: metadata.agent,
+            summary: metadata.summary,
+            task: metadata.task,
+            delegationMode: metadata.delegationMode,
+            taskId: metadata.taskId,
+            siblingIndex: metadata.siblingIndex,
+          },
+          result,
+          updatedAt: metadata.updatedAt,
+        } satisfies HydratedTaskCandidate;
+      }),
     ];
 
     for (const candidate of mergedCandidates) {
-      const existing = latestByTaskId.get(candidate.taskId);
+      const existing = latestBySessionId.get(candidate.sessionId);
       if (!existing || candidate.updatedAt >= existing.updatedAt) {
-        latestByTaskId.set(candidate.taskId, candidate);
+        latestBySessionId.set(candidate.sessionId, candidate);
       }
     }
 
-    for (const candidate of latestByTaskId.values()) {
+    for (const candidate of latestBySessionId.values()) {
       const status = toTaskState(candidate.result);
       const now = Date.now();
-      const publicTaskId = ensurePublicTaskId(candidate.taskId);
-      candidate.result.publicTaskId = candidate.result.publicTaskId || publicTaskId;
-
-      upsertTask(candidate.taskId, {
+      upsertTask(candidate.sessionId, {
         agent: candidate.result.agent || candidate.fallback.agent,
         summary: candidate.result.summary || candidate.fallback.summary,
         task: candidate.result.task || candidate.fallback.task,
@@ -363,55 +346,45 @@ export function createTaskStore() {
         startedAt: candidate.result.startedAt,
         updatedAt: candidate.result.updatedAt || now,
         finishedAt: status === "running" ? undefined : (candidate.result.updatedAt || now),
-        sessionId: candidate.result.sessionId,
+        taskId: candidate.result.taskId ?? candidate.fallback.taskId,
+        siblingIndex: candidate.result.siblingIndex ?? candidate.fallback.siblingIndex,
         provider: candidate.result.provider,
         model: candidate.result.model,
-        taskFile: candidate.result.taskFile,
+        sessionFile: candidate.result.sessionFile,
         error: status === "error" || status === "aborted"
           ? candidate.result.errorMessage || candidate.result.stderr || candidate.result.stopReason || status
           : undefined,
       });
-      if (candidate.hydrateDetail) {
-        details.set(candidate.taskId, candidate.result);
-      }
     }
 
-    return latestByTaskId.size;
+    return latestBySessionId.size;
   };
 
   const listTasks = (): TaskRef[] => {
     return [...refs.values()].sort((a, b) => {
       if (a.startedAt !== b.startedAt) return b.startedAt - a.startedAt;
-      return a.taskId.localeCompare(b.taskId);
+      return a.sessionId.localeCompare(b.sessionId);
     });
   };
 
-  const getTaskDetail = (taskRef: string): TaskDetail | undefined => {
-    const taskId = resolveTaskId(taskRef);
-    if (!taskId) return undefined;
+  const getTaskDetail = (sessionId: string): TaskDetail | undefined => {
+    const normalizedSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
+    if (!normalizedSessionId) return undefined;
 
-    const ref = refs.get(taskId);
+    const ref = refs.get(normalizedSessionId);
     if (!ref) return undefined;
 
-    let result = details.get(taskId);
-    if (!result && ref.taskFile) {
-      const loaded = loadTaskFile(ref.taskFile);
+    let result = details.get(normalizedSessionId);
+    if (ref.sessionFile && (!result || ref.status === "queued" || ref.status === "running")) {
+      const loaded = loadTaskResultFromSession(taskMetadataFromRef(ref));
       if (loaded) {
-        loaded.taskId = loaded.taskId || taskId;
-        loaded.publicTaskId = loaded.publicTaskId || ref.publicTaskId;
-        loaded.taskFile = loaded.taskFile || ref.taskFile;
-        details.set(taskId, loaded);
+        details.set(normalizedSessionId, loaded);
         result = loaded;
       }
     }
 
-    if (result && !result.publicTaskId) {
-      result.publicTaskId = ref.publicTaskId;
-    }
-
     return {
-      taskId,
-      publicTaskId: ref.publicTaskId,
+      sessionId: normalizedSessionId,
       ref,
       result,
     };
@@ -424,8 +397,6 @@ export function createTaskStore() {
   const clear = () => {
     refs.clear();
     details.clear();
-    publicToInternalTaskId.clear();
-    internalToPublicTaskId.clear();
   };
 
   return {
@@ -435,8 +406,6 @@ export function createTaskStore() {
     hydrateFromBranch,
     listTasks,
     getTaskDetail,
-    getPublicTaskId,
-    resolveTaskId,
     clear,
   };
 }

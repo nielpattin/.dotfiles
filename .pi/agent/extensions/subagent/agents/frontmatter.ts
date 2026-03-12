@@ -68,36 +68,6 @@ export function parseListField(
   return parsed;
 }
 
-export function resolveSkillAliases(
-  filePath: string,
-  frontmatter: Record<string, unknown>,
-): string[] | undefined {
-  if (frontmatter.skills !== undefined) {
-    return parseListField(filePath, "skills", frontmatter.skills);
-  }
-  if (frontmatter.skill !== undefined) {
-    return parseListField(filePath, "skills", frontmatter.skill);
-  }
-  return undefined;
-}
-
-export function resolveExtensionAliases(
-  filePath: string,
-  frontmatter: Record<string, unknown>,
-): string[] | undefined {
-  if (frontmatter.extensions !== undefined) {
-    return parseListField(filePath, "extensions", frontmatter.extensions);
-  }
-  if (frontmatter.enabledExtensions !== undefined) {
-    return parseListField(filePath, "extensions", frontmatter.enabledExtensions);
-  }
-  return undefined;
-}
-
-export function resolveCwdAliases(frontmatter: Record<string, unknown>): string | undefined {
-  return normalizeString(frontmatter.cwd) ?? normalizeString(frontmatter.defaultCwd);
-}
-
 function quoteYamlString(value: string): string {
   return JSON.stringify(value);
 }
@@ -210,16 +180,9 @@ export function parseAgentFile(
       : "";
   if (!name || !description) return null;
 
-  if (
-    typeof frontmatter.extensions === "string"
-    && frontmatter.extensions.trim() === ""
-  ) {
-    delete frontmatter.extensions;
-  }
-
   const tools = parseListField(filePath, "tools", frontmatter.tools);
-  const skills = resolveSkillAliases(filePath, frontmatter);
-  const extensions = resolveExtensionAliases(filePath, frontmatter);
+  const skills = parseListField(filePath, "skills", frontmatter.skills);
+  const extensions = parseListField(filePath, "extensions", frontmatter.extensions);
 
   return {
     name,
@@ -227,7 +190,7 @@ export function parseAgentFile(
     tools,
     skills,
     extensions,
-    cwd: resolveCwdAliases(frontmatter),
+    cwd: normalizeString(frontmatter.cwd),
     model:
       typeof frontmatter.model === "string" ? frontmatter.model : undefined,
     thinking:

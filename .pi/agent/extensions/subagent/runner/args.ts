@@ -1,22 +1,23 @@
 import type { AgentConfig } from "../agents/types.js";
-import type { DelegationMode } from "../types.js";
 
 export function buildPiArgs(
   agent: AgentConfig,
   systemPromptPath: string | null,
   prompt: string,
-  delegationMode: DelegationMode,
-  forkSessionPath: string | null,
+  childSessionFile: string,
+  childSessionDir: string,
   thinkingLevel: string | undefined,
   overrideExtensions?: string[],
 ): string[] {
-  const args: string[] = ["--mode", "json", "-p"];
-
-  if (delegationMode === "spawn") {
-    args.push("--no-session");
-  } else if (forkSessionPath) {
-    args.push("--session", forkSessionPath);
-  }
+  const args: string[] = [
+    "--mode",
+    "json",
+    "-p",
+    "--session",
+    childSessionFile,
+    "--session-dir",
+    childSessionDir,
+  ];
 
   if (agent.model) args.push("--model", agent.model);
   if (thinkingLevel) args.push("--thinking", thinkingLevel);

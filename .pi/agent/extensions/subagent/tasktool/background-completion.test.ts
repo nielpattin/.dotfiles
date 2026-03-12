@@ -19,13 +19,12 @@ afterEach(() => {
 });
 
 describe("background completion inbox", () => {
-  it("stores events per session and drains only that session", () => {
+  it("stores events per origin session and drains only that session", () => {
     const inbox = makeInbox();
 
     inbox.enqueue({
-      taskId: "task-1",
-      publicTaskId: "task-1-abc123",
-      sessionId: "session-a",
+      sessionId: "child-session-1",
+      originSessionId: "session-a",
       agent: "worker",
       summary: "run tests",
       status: "success",
@@ -33,8 +32,8 @@ describe("background completion inbox", () => {
       finishedAt: 100,
     });
     inbox.enqueue({
-      taskId: "task-2",
-      sessionId: "session-b",
+      sessionId: "child-session-2",
+      originSessionId: "session-b",
       agent: "reviewer",
       summary: "review patch",
       status: "error",
@@ -44,12 +43,11 @@ describe("background completion inbox", () => {
 
     const sessionA = inbox.drainSession("session-a");
     expect(sessionA).toHaveLength(1);
-    expect(sessionA[0]?.taskId).toBe("task-1");
-    expect(sessionA[0]?.publicTaskId).toBe("task-1-abc123");
+    expect(sessionA[0]?.sessionId).toBe("child-session-1");
 
     const sessionB = inbox.drainSession("session-b");
     expect(sessionB).toHaveLength(1);
-    expect(sessionB[0]?.taskId).toBe("task-2");
+    expect(sessionB[0]?.sessionId).toBe("child-session-2");
   });
 
   it("ignores malformed payload files while draining", () => {
@@ -59,8 +57,8 @@ describe("background completion inbox", () => {
     fs.writeFileSync(path.join(sessionDir, "broken.json"), "not-json", "utf-8");
 
     inbox.enqueue({
-      taskId: "task-1",
-      sessionId: "session-a",
+      sessionId: "child-session-1",
+      originSessionId: "session-a",
       agent: "worker",
       summary: "run tests",
       status: "success",
@@ -70,6 +68,6 @@ describe("background completion inbox", () => {
 
     const drained = inbox.drainSession("session-a");
     expect(drained).toHaveLength(1);
-    expect(drained[0]?.taskId).toBe("task-1");
+    expect(drained[0]?.sessionId).toBe("child-session-1");
   });
 });

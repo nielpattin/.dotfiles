@@ -57,8 +57,8 @@ export async function openAgentsPanel(
 
   if (result.action === "clear") {
     updateAgentDefaultsInFile(selectedAgent.filePath, {
-      defaultSkills: null,
-      enabledExtensions: null,
+      skills: null,
+      extensions: null,
     });
     ctx.ui.notify(`Cleared agent settings for ${result.agentName}.`, "info");
     return;
@@ -67,10 +67,10 @@ export async function openAgentsPanel(
   const normalized = result.value.trim();
   if (result.field === "skills") {
     updateAgentDefaultsInFile(selectedAgent.filePath, {
-      defaultSkills: normalized ? splitCommaInput(result.value) : null,
+      skills: normalized ? splitCommaInput(result.value) : null,
     });
   } else {
-    const enabledExtensions = result.extensionMode === "inherit"
+    const extensions = result.extensionMode === "inherit"
       ? null
       : result.extensionMode === "none"
         ? []
@@ -79,7 +79,7 @@ export async function openAgentsPanel(
           : null;
 
     updateAgentDefaultsInFile(selectedAgent.filePath, {
-      enabledExtensions,
+      extensions,
     });
   }
 
@@ -88,7 +88,7 @@ export async function openAgentsPanel(
 
 export function registerAgentsCommand(pi: ExtensionAPI): void {
   pi.registerCommand("agents", {
-    description: "Configure per-agent defaults (skills, extensions).",
+    description: "Configure per-agent settings (skills, extensions).",
     handler: async (_args: string, ctx: ExtensionCommandContext) => {
       await openAgentsPanel(ctx);
     },

@@ -6,9 +6,8 @@ import * as path from "node:path";
 export type BackgroundCompletionStatus = "success" | "error" | "aborted";
 
 export interface BackgroundCompletionEvent {
-  taskId: string;
-  publicTaskId?: string;
   sessionId: string;
+  originSessionId: string;
   agent: string;
   summary: string;
   status: BackgroundCompletionStatus;
@@ -20,20 +19,12 @@ function encodeSessionId(sessionId: string): string {
   return encodeURIComponent(sessionId);
 }
 
-function decodeSessionId(encoded: string): string {
-  try {
-    return decodeURIComponent(encoded);
-  } catch {
-    return encoded;
-  }
-}
-
-function sanitizeTaskId(taskId: string): string {
-  return taskId.replace(/[^a-zA-Z0-9._:-]+/g, "-").slice(0, 80) || "task";
+function sanitizeId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._:-]+/g, "-").slice(0, 80) || "id";
 }
 
 function defaultInboxRoot(): string {
-  return path.join(os.homedir(), ".pi", "agent", "extensions", "subagent", "background-inbox");
+  return path.join(os.homedir(), ".pi", "agent", "state", "subagent", "background-inbox");
 }
 
 export function createBackgroundCompletionInbox(rootDir = defaultInboxRoot()) {
@@ -49,19 +40,11 @@ export function createBackgroundCompletionInbox(rootDir = defaultInboxRoot()) {
   };
 
   const enqueue = (event: BackgroundCompletionEvent): string => {
-    const sessionDir = getSessionDir(event.sessionId);
-    const fileName = `${event.finishedAt}-${sanitizeTaskId(event.taskId)}-${randomUUID().slice(0, 8)}.json`;
+    const sessionDir = getSessionDir(event.originSessionId);
+    const fileName = `${event.finishedAt}-${sanitizeId(event.sessionId)}-${randomUUID().slice(0, 8)}.json`;
     const filePath = path.join(sessionDir, fileName);
     fs.writeFileSync(filePath, JSON.stringify(event), "utf-8");
     return filePath;
-  };
-
-  const listSessionIds = (): string[] => {
-    ensureRoot();
-    const dirs = fs.readdirSync(rootDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => decodeSessionId(entry.name));
-    return dirs.sort((a, b) => a.localeCompare(b));
   };
 
   const drainSession = (sessionId: string): BackgroundCompletionEvent[] => {
@@ -80,9 +63,8 @@ export function createBackgroundCompletionInbox(rootDir = defaultInboxRoot()) {
         const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8")) as BackgroundCompletionEvent;
         if (
           parsed
-          && typeof parsed.taskId === "string"
-          && (parsed.publicTaskId === undefined || typeof parsed.publicTaskId === "string")
           && typeof parsed.sessionId === "string"
+          && typeof parsed.originSessionId === "string"
           && typeof parsed.agent === "string"
           && typeof parsed.summary === "string"
           && typeof parsed.status === "string"
@@ -111,19 +93,9 @@ export function createBackgroundCompletionInbox(rootDir = defaultInboxRoot()) {
     return events;
   };
 
-  const clearAll = (): void => {
-    try {
-      fs.rmSync(rootDir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors
-    }
-  };
-
   return {
     rootDir,
     enqueue,
     drainSession,
-    listSessionIds,
-    clearAll,
   };
 }

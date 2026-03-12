@@ -2,7 +2,7 @@ import type { Theme } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
 export type StreamTone = "text" | "accent" | "muted" | "warning" | "error";
-export type TranscriptKind = "assistant" | "user" | "tool" | "result" | "thinking" | "system" | "error";
+export type TranscriptKind = "assistant" | "user" | "tool" | "thinking" | "system" | "error";
 
 function statusColor(status: string): "accent" | "success" | "warning" | "error" | "muted" {
   switch (status.toLowerCase()) {
@@ -25,10 +25,9 @@ function statusColor(status: string): "accent" | "success" | "warning" | "error"
   }
 }
 
-function roleColor(kind: TranscriptKind): "accent" | "toolTitle" | "success" | "error" | "muted" | "warning" {
+function roleColor(kind: TranscriptKind): "accent" | "toolTitle" | "error" | "muted" | "warning" {
   if (kind === "assistant") return "accent";
   if (kind === "tool") return "toolTitle";
-  if (kind === "result") return "success";
   if (kind === "error") return "error";
   if (kind === "user") return "warning";
   return "muted";

@@ -1,5 +1,4 @@
 import type { BackgroundCompletionEvent } from "./background-completion.js";
-import { toPublicTaskId } from "./display-task-id.js";
 
 const TASK_RESULT_RACE_WAIT_MS = 750;
 
@@ -8,18 +7,12 @@ function toIsoTime(epochMs: number): string {
   return new Date(safe).toISOString();
 }
 
-function resolvePublicTaskId(event: Pick<BackgroundCompletionEvent, "taskId" | "publicTaskId">): string {
-  const publicTaskId = typeof event.publicTaskId === "string" ? event.publicTaskId.trim() : "";
-  if (publicTaskId) return publicTaskId;
-  return toPublicTaskId(event.taskId);
-}
-
 function visibleCompletionLine(
   status: BackgroundCompletionEvent["status"],
-  publicTaskId: string,
+  sessionId: string,
 ): string {
   const icon = status === "success" ? "✓" : (status === "aborted" ? "⚠" : "✗");
-  return `${icon} Fetching ${publicTaskId}`;
+  return `${icon} Fetching ${sessionId}`;
 }
 
 function normalizeInline(text: string): string {
@@ -42,15 +35,13 @@ export function buildBackgroundCompletionMessages(
 ): BackgroundCompletionMessageBundle {
   const output = normalizeInline(event.output);
   const outputAvailable = output.length > 0 && output !== "(no output)";
-  const publicTaskId = resolvePublicTaskId(event);
 
   const payload = {
     type: "subagent_background_completion",
     version: 2,
     task: {
-      id: event.taskId,
-      publicId: publicTaskId,
       sessionId: event.sessionId,
+      originSessionId: event.originSessionId,
       agent: event.agent,
       summary: event.summary,
       status: event.status,
@@ -62,7 +53,7 @@ export function buildBackgroundCompletionMessages(
       taskResultCall: {
         tool: "task_result",
         args: {
-          taskId: publicTaskId,
+          sessionId: event.sessionId,
           waitMs: TASK_RESULT_RACE_WAIT_MS,
         },
       },
@@ -77,7 +68,7 @@ export function buildBackgroundCompletionMessages(
   } as const;
 
   return {
-    visibleContent: visibleCompletionLine(event.status, publicTaskId),
+    visibleContent: visibleCompletionLine(event.status, event.sessionId),
     controlContent: [
       "SUBAGENT_BACKGROUND_COMPLETION_CONTROL_V1",
       "A delegated background task has completed.",

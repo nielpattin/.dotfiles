@@ -6,10 +6,10 @@ const MAX_POLL_INTERVAL_MS = 2_000;
 const MAX_WAIT_MS = 120_000;
 
 export const TaskResultParams = Type.Object({
-  taskId: Type.String({
+  sessionId: Type.String({
     minLength: 1,
     pattern: "\\S",
-    description: "Task reference to fetch (public id like task-1-abc123 or internal id <toolCallId>:1).",
+    description: "Delegated child session id to fetch.",
   }),
   waitMs: Type.Optional(
     Type.Number({
@@ -54,13 +54,13 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 
 export async function waitForTaskDetail(
   store: TaskStore,
-  taskId: string,
+  sessionId: string,
   waitMs: number,
   pollIntervalMs: number,
   signal?: AbortSignal,
 ): Promise<TaskDetail | undefined> {
   const startedAt = Date.now();
-  let detail = store.getTaskDetail(taskId);
+  let detail = store.getTaskDetail(sessionId);
 
   while (
     !signal?.aborted
@@ -69,7 +69,7 @@ export async function waitForTaskDetail(
     && (Date.now() - startedAt) < waitMs
   ) {
     await delay(Math.min(pollIntervalMs, waitMs), signal);
-    detail = store.getTaskDetail(taskId);
+    detail = store.getTaskDetail(sessionId);
   }
 
   return detail;

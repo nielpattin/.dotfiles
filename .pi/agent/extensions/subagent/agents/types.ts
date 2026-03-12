@@ -20,7 +20,7 @@ export interface AgentDiscoveryResult {
 }
 
 export interface AgentDefaultsUpdate {
-  defaultSkills?: string[] | null;
-  enabledExtensions?: string[] | null;
-  defaultCwd?: string | null;
+  skills?: string[] | null;
+  extensions?: string[] | null;
+  cwd?: string | null;
 }
