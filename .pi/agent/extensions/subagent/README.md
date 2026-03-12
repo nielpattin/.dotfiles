@@ -140,6 +140,25 @@ Behavior:
 - extension selection stays in agent config/frontmatter, not payload
 - extension picker supports both inherit (clear override) and none (persist `extensions: []`)
 
+## Session prompt toggle (`/toggle-orchestrator`)
+
+Use `/toggle-orchestrator` to flip an extra **in-memory** orchestrator system prompt for the current session only.
+
+- no arguments/subcommands
+- every run toggles current session state ON/OFF
+- footer status is shown via `ctx.ui.setStatus(...)` and updates on session start, session switch, and every toggle
+
+The injected section is:
+
+```md
+## Subagent Orchestration
+You're orchestrator you delegated task to worker and scout to do the task
+```
+
+When enabled, this section is prepended at the top of the system prompt before other subagent-added system instructions.
+
+State is memory-only (no file/config writes), survives while Pi is running, and resets on process restart.
+
 ## Tasks panel (`/tasks`)
 
 Use `/tasks` to inspect delegated runs in a centered overlay panel.

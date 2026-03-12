@@ -22,6 +22,12 @@ import { discoverAgents } from "./agents/discover.js";
 import { renderCall, renderResult } from "./render/details.js";
 import { registerAgentsCommand } from "./taskconfig/command.js";
 import { registerTasksCommand } from "./tasks/command.js";
+import {
+  createSessionPromptToggleState,
+  registerSubagentPromptCommand,
+  setOrchestratorFooterStatus,
+  SUBAGENT_ORCHESTRATOR_PROMPT_SECTION,
+} from "./prompt/command.js";
 import { TaskParams } from "./tasktool/schema.js";
 import { resolveDelegationDepthConfig, resolveParallelExecutionConfig } from "./tasktool/settings.js";
 import { validateTaskToolParams } from "./tasktool/validate.js";
@@ -105,6 +111,7 @@ export default function (pi: ExtensionAPI) {
   let discoveredAgents: AgentConfig[] = [];
   const delegatedRunsWidget = createDelegatedRunsWidget();
   const taskStore = createTaskStore();
+  const sessionPromptToggleState = createSessionPromptToggleState();
   const backgroundInbox = createBackgroundCompletionInbox();
   const deliveredCompletionKeys = new Map<string, number>();
   const completionDedupTtlMs = 10 * 60 * 1000;
@@ -161,6 +168,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   registerTasksCommand(pi, taskStore);
+  registerSubagentPromptCommand(pi, sessionPromptToggleState, resolveStableSessionId);
 
   function refreshDiscoveredAgents(cwd: string): AgentConfig[] {
     const discovery = discoverAgents(cwd, "both");
@@ -183,6 +191,7 @@ export default function (pi: ExtensionAPI) {
 
     // session_start fires on initial load, including reopening an existing session.
     currentSessionId = resolveStableSessionId(ctx);
+    setOrchestratorFooterStatus(ctx, sessionPromptToggleState.isEnabled(currentSessionId));
     hydrateTasksFromCurrentBranch(ctx);
     delegatedRunsWidget.handleSessionStart(ctx as DelegatedRunsWidgetContext);
     flushCompletionInboxForSession(currentSessionId);
@@ -204,6 +213,7 @@ export default function (pi: ExtensionAPI) {
     if (!canDelegate) return;
 
     currentSessionId = resolveStableSessionId(ctx);
+    setOrchestratorFooterStatus(ctx, sessionPromptToggleState.isEnabled(currentSessionId));
     hydrateTasksFromCurrentBranch(ctx);
     delegatedRunsWidget.handleSessionStart(ctx as DelegatedRunsWidgetContext);
     flushCompletionInboxForSession(currentSessionId);
@@ -213,16 +223,13 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx) => {
     if (!canDelegate) return;
 
+    const additions: string[] = [];
     const agents = ctx ? refreshDiscoveredAgents(ctx.cwd) : discoveredAgents;
-    if (agents.length === 0) return;
-
-    const agentList = agents
-      .map((a) => `- **${a.name}**: ${a.description}`)
-      .join("\n");
-    return {
-      systemPrompt:
-        event.systemPrompt +
-        `\n\n## Available Task Agents
+    if (agents.length > 0) {
+      const agentList = agents
+        .map((a) => `- **${a.name}**: ${a.description}`)
+        .join("\n");
+      additions.push(`\n\n## Available Task Agents
 
 The following task agents are available via the \`task\` tool:
 
@@ -254,12 +261,23 @@ Rules:
 
 Use \`/agents\` for per-agent settings like extensions and skills, \`/tasks\` to inspect delegated task sessions, and \`task_result\` for programmatic status/result lookup by child session id.
 Background completions are pushed into the originating session, trigger a follow-up turn automatically, and use a task_result-first handoff.
-`,
+`);
+    }
+
+    const sessionId = resolveStableSessionId(ctx);
+    const orchestratorPrefix = sessionPromptToggleState.isEnabled(sessionId)
+      ? `${SUBAGENT_ORCHESTRATOR_PROMPT_SECTION}\n\n`
+      : "";
+
+    if (orchestratorPrefix === "" && additions.length === 0) return;
+    return {
+      systemPrompt: `${orchestratorPrefix}${event.systemPrompt}${additions.join("")}`,
     };
   });
 
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (_event, ctx) => {
     currentSessionId = undefined;
+    setOrchestratorFooterStatus(ctx, false);
     taskStore.clear();
     delegatedRunsWidget.handleSessionShutdown();
   });
