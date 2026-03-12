@@ -103,7 +103,7 @@ function dot-code {
     try {
         $env:GIT_DIR = "$HOME\.dotfiles"
         $env:GIT_WORK_TREE = "$HOME"
-        $env:GIT_OPTIONAL_LOCKS = "0"
+        # $env:GIT_OPTIONAL_LOCKS = "0" # Code doesn't do git operations, so locks shouldn't be an issue, and setting this can cause problems with other git processes. Leaving it unchanged.
         Set-Location $HOME
         & code @CodeArgs .
     }
