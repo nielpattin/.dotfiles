@@ -235,6 +235,11 @@ The following task agents are available via the \`task\` tool:
 
 ${agentList}
 
+### Routing policy
+
+- Use **scout** first when scope is unclear: discovery, file finding, context gathering, impact mapping.
+- Use **worker** after scope is known: implementation, code edits, and targeted validation.
+
 ### How to call the task tool
 
 Each task runs in an **isolated process**.

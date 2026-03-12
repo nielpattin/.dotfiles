@@ -6,7 +6,9 @@ export type StableSessionIdResolver = (ctx: {
 
 export const SUBAGENT_ORCHESTRATOR_PROMPT_SECTION = [
   "## Subagent Orchestration",
-  "You're orchestrator you delegated task to worker and scout to do the task",
+  "Route work by role:",
+  "- Use scout first for unknown codebase areas, discovery, file finding, and impact analysis.",
+  "- Use worker after scope and target files are known for implementation, edits, and targeted validation.",
 ].join("\n");
 
 export const SUBAGENT_ORCHESTRATOR_STATUS_KEY = "subagent-orchestrator";

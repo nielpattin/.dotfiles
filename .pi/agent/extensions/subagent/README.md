@@ -6,6 +6,12 @@ Delegate work to specialized agents through one tool: `task`.
 
 `task` has exactly 2 public modes.
 
+## Role routing policy
+
+- Use `scout` first when scope is unclear: codebase discovery, file finding, context gathering, impact mapping.
+- Use `worker` after scope and target files are known: implementation, edits, and targeted validation.
+- `scout` should not implement unless explicitly requested.
+
 ### 1) Single
 
 ```json
@@ -118,7 +124,7 @@ Example agent frontmatter:
 ```yaml
 ---
 name: worker
-description: General worker
+description: Implementation-focused subagent for scoped coding tasks
 skills:
   - triage-expert
   - frontend-design
@@ -152,7 +158,9 @@ The injected section is:
 
 ```md
 ## Subagent Orchestration
-You're orchestrator you delegated task to worker and scout to do the task
+Route work by role:
+- Use scout first for unknown codebase areas, discovery, file finding, and impact analysis.
+- Use worker after scope and target files are known for implementation, edits, and targeted validation.
 ```
 
 When enabled, this section is prepended at the top of the system prompt before other subagent-added system instructions.

@@ -112,9 +112,12 @@ describe("/toggle-orchestrator command", () => {
 });
 
 describe("orchestrator prompt section", () => {
-  it("contains the required orchestrator instruction", () => {
+  it("contains routing guidance for scout then worker", () => {
     expect(SUBAGENT_ORCHESTRATOR_PROMPT_SECTION).toContain(
-      "You're orchestrator you delegated task to worker and scout to do the task",
+      "Use scout first for unknown codebase areas, discovery, file finding, and impact analysis.",
+    );
+    expect(SUBAGENT_ORCHESTRATOR_PROMPT_SECTION).toContain(
+      "Use worker after scope and target files are known for implementation, edits, and targeted validation.",
     );
   });
 });
