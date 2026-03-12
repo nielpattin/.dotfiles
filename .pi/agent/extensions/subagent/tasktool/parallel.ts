@@ -46,7 +46,6 @@ export interface ExecuteParallelParams {
   maxParallelTasks: number;
   concurrency: number;
   currentDepth: number;
-  maxDepth: number;
   upsertDelegatedRun: (
     key: string,
     partial: {
@@ -134,7 +133,6 @@ export async function executeParallel(params: ExecuteParallelParams) {
     maxParallelTasks,
     concurrency,
     currentDepth,
-    maxDepth,
     upsertDelegatedRun,
     syncDelegatedRunWithResult,
     upsertTask,
@@ -335,7 +333,6 @@ export async function executeParallel(params: ExecuteParallelParams) {
             forkSessionSnapshot: t.delegationMode === "fork" ? forkSessionSnapshot : undefined,
             inheritedThinking,
             parentDepth: currentDepth,
-            maxDepth,
             signal,
             onUpdate: (partial) => {
               if (partial.details?.results[0]) {

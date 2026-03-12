@@ -24,7 +24,6 @@ export const SUBAGENT_BACKGROUND_STATUS_TYPE = "subagent-background-status";
 
 /** Delegation-related CLI flag names. */
 export const TASK_FLAG_NAMES = {
-  maxDepth: "task-max-depth",
   maxParallel: "task-max-parallel",
   concurrency: "task-concurrency",
 } as const;
@@ -32,7 +31,6 @@ export const TASK_FLAG_NAMES = {
 /** Delegation/process environment variable names. */
 export const TASK_ENV_NAMES = {
   depth: "PI_TASK_DEPTH",
-  maxDepth: "PI_TASK_MAX_DEPTH",
   maxParallel: "PI_TASK_MAX_PARALLEL",
   concurrency: "PI_TASK_CONCURRENCY",
   offline: "PI_OFFLINE",
@@ -42,5 +40,4 @@ export const TASK_ENV_NAMES = {
 export const TASK_DEFAULTS = {
   maxParallelTasks: 8,
   maxConcurrency: 4,
-  maxDelegationDepth: 1,
 } as const;

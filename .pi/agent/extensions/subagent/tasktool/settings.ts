@@ -8,7 +8,6 @@ import {
 
 export interface DelegationDepthConfig {
   currentDepth: number;
-  maxDepth: number;
   canDelegate: boolean;
 }
 
@@ -86,7 +85,7 @@ function resolvePositiveIntSetting(
   return argvFlagValue ?? runtimeFlagValue ?? envValue ?? fallback;
 }
 
-export function resolveDelegationDepthConfig(pi: ExtensionAPI): DelegationDepthConfig {
+export function resolveDelegationDepthConfig(_pi: ExtensionAPI): DelegationDepthConfig {
   const depthRaw = process.env[TASK_ENV_NAMES.depth];
   const parsedDepth = parseNonNegativeInt(depthRaw);
   if (depthRaw !== undefined && parsedDepth === null) {
@@ -94,43 +93,11 @@ export function resolveDelegationDepthConfig(pi: ExtensionAPI): DelegationDepthC
       `${SUBAGENT_LOG_PREFIX} Ignoring invalid ${TASK_ENV_NAMES.depth}="${depthRaw}". Expected a non-negative integer.`,
     );
   }
+
   const currentDepth = parsedDepth ?? 0;
+  const canDelegate = depthRaw === undefined || parsedDepth === 0;
 
-  const envMaxDepthRaw = process.env[TASK_ENV_NAMES.maxDepth];
-  const envMaxDepth = parseNonNegativeInt(envMaxDepthRaw);
-  if (envMaxDepthRaw !== undefined && envMaxDepth === null) {
-    console.warn(
-      `${SUBAGENT_LOG_PREFIX} Ignoring invalid ${TASK_ENV_NAMES.maxDepth}="${envMaxDepthRaw}". Expected a non-negative integer.`,
-    );
-  }
-
-  const argvFlagRaw = getFlagValueFromArgv(process.argv, TASK_FLAG_NAMES.maxDepth);
-  const argvFlagMaxDepth =
-    argvFlagRaw !== null ? parseNonNegativeInt(argvFlagRaw) : null;
-  if (argvFlagRaw !== null && argvFlagMaxDepth === null) {
-    console.warn(
-      `${SUBAGENT_LOG_PREFIX} Ignoring invalid --${TASK_FLAG_NAMES.maxDepth} value "${argvFlagRaw}". Expected a non-negative integer.`,
-    );
-  }
-
-  const runtimeFlagValue = pi.getFlag(TASK_FLAG_NAMES.maxDepth);
-  const runtimeFlagMaxDepth =
-    typeof runtimeFlagValue === "string"
-      ? parseNonNegativeInt(runtimeFlagValue)
-      : null;
-  if (
-    argvFlagRaw === null &&
-    typeof runtimeFlagValue === "string" &&
-    runtimeFlagMaxDepth === null
-  ) {
-    console.warn(
-      `${SUBAGENT_LOG_PREFIX} Ignoring invalid --${TASK_FLAG_NAMES.maxDepth} value "${runtimeFlagValue}". Expected a non-negative integer.`,
-    );
-  }
-
-  const flagMaxDepth = argvFlagMaxDepth ?? runtimeFlagMaxDepth;
-  const maxDepth = flagMaxDepth ?? envMaxDepth ?? TASK_DEFAULTS.maxDelegationDepth;
-  return { currentDepth, maxDepth, canDelegate: currentDepth < maxDepth };
+  return { currentDepth, canDelegate };
 }
 
 export function resolveParallelExecutionConfig(pi: ExtensionAPI): ParallelExecutionConfig {

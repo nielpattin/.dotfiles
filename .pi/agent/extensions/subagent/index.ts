@@ -88,10 +88,6 @@ function resolveStableSessionId(ctx: { sessionManager?: { getSessionId?: () => s
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.registerFlag(TASK_FLAG_NAMES.maxDepth, {
-    description: "Maximum allowed task delegation depth (default: 1).",
-    type: "string",
-  });
   pi.registerFlag(TASK_FLAG_NAMES.maxParallel, {
     description: "Maximum number of tasks allowed in one parallel batch (default: 8).",
     type: "string",
@@ -105,7 +101,7 @@ export default function (pi: ExtensionAPI) {
 
   const depthConfig = resolveDelegationDepthConfig(pi);
   const parallelConfig = resolveParallelExecutionConfig(pi);
-  const { currentDepth, maxDepth, canDelegate } = depthConfig;
+  const { currentDepth, canDelegate } = depthConfig;
   const { maxParallelTasks, concurrency } = parallelConfig;
 
   let discoveredAgents: AgentConfig[] = [];
@@ -349,7 +345,6 @@ Background completions are pushed into the originating session, trigger a follow
           maxParallelTasks,
           concurrency,
           currentDepth,
-          maxDepth,
           upsertDelegatedRun: delegatedRunsWidget.upsertRun,
           syncDelegatedRunWithResult: delegatedRunsWidget.syncRunWithResult,
           upsertTask: taskStore.upsertTask,

@@ -50,7 +50,6 @@ export interface RunChildProcessOptions {
   spawnTarget: SpawnTarget;
   cwd: string;
   parentDepth: number;
-  maxDepth: number;
   signal?: AbortSignal;
   result: SingleResult;
   emitUpdate: () => void;
@@ -63,7 +62,6 @@ export async function runChildProcess(
     spawnTarget,
     cwd,
     parentDepth,
-    maxDepth,
     signal,
     result,
     emitUpdate,
@@ -73,7 +71,6 @@ export async function runChildProcess(
 
   const exitCode = await new Promise<number>((resolve) => {
     const nextDepth = Math.max(0, Math.floor(parentDepth)) + 1;
-    const propagatedMaxDepth = Math.max(0, Math.floor(maxDepth));
     const proc = spawn(spawnTarget.command, spawnTarget.args, {
       cwd,
       shell: false,
@@ -81,7 +78,6 @@ export async function runChildProcess(
       env: {
         ...process.env,
         [TASK_ENV_NAMES.depth]: String(nextDepth),
-        [TASK_ENV_NAMES.maxDepth]: String(propagatedMaxDepth),
         [TASK_ENV_NAMES.offline]: "1",
       },
     });

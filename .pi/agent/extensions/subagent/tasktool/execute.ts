@@ -147,7 +147,6 @@ export interface ExecuteTaskToolParams {
   maxParallelTasks: number;
   concurrency: number;
   currentDepth: number;
-  maxDepth: number;
   upsertDelegatedRun: (
     key: string,
     partial: {
@@ -219,7 +218,6 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
     maxParallelTasks,
     concurrency,
     currentDepth,
-    maxDepth,
     upsertDelegatedRun,
     syncDelegatedRunWithResult,
     upsertTask,
@@ -319,7 +317,6 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
       maxParallelTasks,
       concurrency,
       currentDepth,
-      maxDepth,
       upsertDelegatedRun,
       syncDelegatedRunWithResult,
       upsertTask,

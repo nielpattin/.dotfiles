@@ -72,8 +72,6 @@ export interface RunAgentOptions {
   forkSessionSnapshot?: SessionSnapshot;
   /** Current delegation depth of the caller process. */
   parentDepth: number;
-  /** Maximum allowed delegation depth to propagate to child processes. */
-  maxDepth: number;
   /** Abort signal for cancellation. */
   signal?: AbortSignal;
   /** Streaming update callback. */
@@ -107,7 +105,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     parentSessionFile,
     forkSessionSnapshot,
     parentDepth,
-    maxDepth,
     signal,
     onUpdate,
     makeDetails,
@@ -315,7 +312,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
       spawnTarget,
       cwd: taskCwd ?? cwd,
       parentDepth,
-      maxDepth,
       signal,
       result,
       emitUpdate,
