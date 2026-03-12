@@ -9,11 +9,13 @@
  * This extension DOES NOT register a custom provider and does NOT intercept streaming.
  */
 
+import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
+import { createServer } from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { OAuthCredentials } from "@mariozechner/pi-ai";
-import { loginOpenAICodex, refreshOpenAICodexToken } from "@mariozechner/pi-ai/oauth";
+import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
@@ -22,7 +24,27 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { matchesKey, truncateToWidth, visibleWidth, type TUI } from "@mariozechner/pi-tui";
 
+interface CodexAuthTokens {
+	id_token: string;
+	access_token: string;
+	refresh_token: string;
+	account_id?: string;
+}
+
+interface CodexAuthPayload {
+	auth_mode: "chatgpt";
+	OPENAI_API_KEY: string | null;
+	tokens: CodexAuthTokens;
+	last_refresh: string | null;
+}
+
 interface StoredAccount {
+	email: string;
+	auth: CodexAuthPayload;
+	lastUsed?: number;
+}
+
+interface LegacyStoredAccount {
 	email: string;
 	accessToken: string;
 	refreshToken: string;
@@ -34,6 +56,7 @@ interface StoredAccount {
 interface StorageData {
 	accounts: StoredAccount[];
 	activeEmail?: string;
+	codexActiveEmail?: string;
 }
 
 interface OAuthAuthEntry {
@@ -45,10 +68,40 @@ interface OAuthAuthEntry {
 	[key: string]: unknown;
 }
 
+interface OpenAICodexCredentials extends OAuthCredentials {
+	idToken?: string;
+	accountId?: string;
+}
+
+interface TokenExchangeSuccess {
+	type: "success";
+	idToken?: string;
+	access: string;
+	refresh: string;
+	expires: number;
+}
+
+interface TokenExchangeFailure {
+	type: "failed";
+}
+
+type TokenExchangeResult = TokenExchangeSuccess | TokenExchangeFailure;
+
 const AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
+const CODEX_DIR = path.join(os.homedir(), ".codex");
 const STORAGE_FILE = path.join(AGENT_DIR, "multicodex.json");
 const AUTH_FILE = path.join(AGENT_DIR, "auth.json");
+const CODEX_AUTH_FILE = path.join(CODEX_DIR, "auth.json");
 const OPENAI_CODEX_PROVIDER = "openai-codex";
+const OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+const OPENAI_CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
+const OPENAI_CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
+const OPENAI_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback";
+const OPENAI_CODEX_SCOPE = "openid profile email offline_access";
+const OPENAI_CODEX_AUTH_CLAIM_PATH = "https://api.openai.com/auth";
+const OPENAI_CODEX_PROFILE_CLAIM_PATH = "https://api.openai.com/profile";
+const OAUTH_CALLBACK_POLL_ATTEMPTS = 600;
+const OAUTH_CALLBACK_POLL_INTERVAL_MS = 100;
 const USAGE_REQUEST_TIMEOUT_MS = 10_000;
 const USAGE_CACHE_TTL_MS = 5 * 60 * 1000;
 const USAGE_POLL_INTERVAL_MS = 60 * 1000;
@@ -94,7 +147,8 @@ function readJsonFile<T>(filePath: string): T | undefined {
 }
 
 function writeJsonFile(filePath: string, data: unknown): void {
-	ensureAgentDir();
+	const parent = path.dirname(filePath);
+	fs.mkdirSync(parent, { recursive: true });
 	fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
 }
 
@@ -103,34 +157,45 @@ function normalizeStorage(raw: unknown): StorageData {
 		return { accounts: [] };
 	}
 
-	const input = raw as Partial<StorageData>;
+	const input = raw as Partial<StorageData> & { accounts?: unknown[] };
 	const accounts = Array.isArray(input.accounts) ? input.accounts : [];
 	const normalized: StoredAccount[] = [];
 
 	for (const item of accounts) {
 		if (!item || typeof item !== "object") continue;
-		const acc = item as Partial<StoredAccount>;
-		if (
-			typeof acc.email !== "string" ||
-			typeof acc.accessToken !== "string" ||
-			typeof acc.refreshToken !== "string" ||
-			typeof acc.expiresAt !== "number"
-		) {
+		const acc = item as Partial<StoredAccount> & Partial<LegacyStoredAccount>;
+		if (typeof acc.email !== "string") continue;
+		const auth = normalizeCodexAuthPayload(acc.auth);
+		if (auth) {
+			normalized.push({
+				email: acc.email,
+				auth,
+				lastUsed: typeof acc.lastUsed === "number" ? acc.lastUsed : undefined,
+			});
 			continue;
 		}
-		normalized.push({
-			email: acc.email,
-			accessToken: acc.accessToken,
-			refreshToken: acc.refreshToken,
-			expiresAt: acc.expiresAt,
-			accountId: typeof acc.accountId === "string" ? acc.accountId : undefined,
-			lastUsed: typeof acc.lastUsed === "number" ? acc.lastUsed : undefined,
-		});
+		if (
+			typeof acc.accessToken === "string" &&
+			typeof acc.refreshToken === "string" &&
+			typeof acc.expiresAt === "number"
+		) {
+			normalized.push(
+				legacyAccountToStoredAccount({
+					email: acc.email,
+					accessToken: acc.accessToken,
+					refreshToken: acc.refreshToken,
+					expiresAt: acc.expiresAt,
+					accountId: typeof acc.accountId === "string" ? acc.accountId : undefined,
+					lastUsed: typeof acc.lastUsed === "number" ? acc.lastUsed : undefined,
+				}),
+			);
+		}
 	}
 
 	return {
 		accounts: normalized,
 		activeEmail: typeof input.activeEmail === "string" ? input.activeEmail : undefined,
+		codexActiveEmail: typeof input.codexActiveEmail === "string" ? input.codexActiveEmail : undefined,
 	};
 }
 
@@ -140,6 +205,10 @@ function loadAuthData(): Record<string, unknown> {
 		return {};
 	}
 	return parsed as Record<string, unknown>;
+}
+
+function loadCodexAuthData(): CodexAuthPayload | undefined {
+	return normalizeCodexAuthPayload(readJsonFile<unknown>(CODEX_AUTH_FILE));
 }
 
 function parseOAuthAuthEntry(value: unknown): OAuthAuthEntry | undefined {
@@ -158,6 +227,375 @@ function parseOAuthAuthEntry(value: unknown): OAuthAuthEntry | undefined {
 
 function extractOpenAICodexAuth(auth: Record<string, unknown>): OAuthAuthEntry | undefined {
 	return parseOAuthAuthEntry(auth[OPENAI_CODEX_PROVIDER]);
+}
+
+function parseJwtPayload(token: string): Record<string, unknown> | undefined {
+	const parts = token.split(".");
+	const payload = parts[1];
+	if (!payload) return undefined;
+	try {
+		const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+		const padLength = (4 - (normalized.length % 4)) % 4;
+		const decoded = Buffer.from(`${normalized}${"=".repeat(padLength)}`, "base64").toString("utf8");
+		const parsed = JSON.parse(decoded);
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function getJwtAccountId(token: string): string | undefined {
+	const payload = parseJwtPayload(token);
+	const auth = payload?.[OPENAI_CODEX_AUTH_CLAIM_PATH];
+	if (!auth || typeof auth !== "object" || Array.isArray(auth)) return undefined;
+	const accountId = (auth as Record<string, unknown>).chatgpt_account_id;
+	return typeof accountId === "string" && accountId.length > 0 ? accountId : undefined;
+}
+
+function getJwtEmail(token: string): string | undefined {
+	const payload = parseJwtPayload(token);
+	const directEmail = payload?.email;
+	if (typeof directEmail === "string" && directEmail.length > 0) return directEmail;
+	const profile = payload?.[OPENAI_CODEX_PROFILE_CLAIM_PATH];
+	if (!profile || typeof profile !== "object" || Array.isArray(profile)) return undefined;
+	const profileEmail = (profile as Record<string, unknown>).email;
+	return typeof profileEmail === "string" && profileEmail.length > 0 ? profileEmail : undefined;
+}
+
+function getJwtExpiry(token: string): number | undefined {
+	const payload = parseJwtPayload(token);
+	const exp = payload?.exp;
+	return typeof exp === "number" && Number.isFinite(exp) ? exp * 1000 : undefined;
+}
+
+function normalizeLastRefresh(value: unknown): string | null {
+	return typeof value === "string" || value === null ? value : null;
+}
+
+function normalizeCodexAuthPayload(value: unknown): CodexAuthPayload | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const input = value as Partial<CodexAuthPayload> & {
+		tokens?: Partial<CodexAuthTokens>;
+	};
+	const tokens = input.tokens;
+	if (
+		input.auth_mode !== "chatgpt" ||
+		(typeof input.OPENAI_API_KEY !== "string" && input.OPENAI_API_KEY !== null) ||
+		!tokens ||
+		typeof tokens.id_token !== "string" ||
+		typeof tokens.access_token !== "string" ||
+		typeof tokens.refresh_token !== "string"
+	) {
+		return undefined;
+	}
+	return {
+		auth_mode: "chatgpt",
+		OPENAI_API_KEY: input.OPENAI_API_KEY ?? null,
+		tokens: {
+			id_token: tokens.id_token,
+			access_token: tokens.access_token,
+			refresh_token: tokens.refresh_token,
+			account_id: typeof tokens.account_id === "string" ? tokens.account_id : undefined,
+		},
+		last_refresh: normalizeLastRefresh(input.last_refresh),
+	};
+}
+
+function createCodexAuthPayload(params: {
+	idToken: string;
+	accessToken: string;
+	refreshToken: string;
+	accountId?: string;
+	lastRefresh?: string | null;
+}): CodexAuthPayload {
+	const accountId = params.accountId ?? getJwtAccountId(params.accessToken) ?? getJwtAccountId(params.idToken);
+	return {
+		auth_mode: "chatgpt",
+		OPENAI_API_KEY: null,
+		tokens: {
+			id_token: params.idToken,
+			access_token: params.accessToken,
+			refresh_token: params.refreshToken,
+			...(accountId ? { account_id: accountId } : {}),
+		},
+		last_refresh: params.lastRefresh ?? new Date().toISOString(),
+	};
+}
+
+function legacyAccountToStoredAccount(account: LegacyStoredAccount): StoredAccount {
+	return {
+		email: account.email,
+		auth: createCodexAuthPayload({
+			idToken: account.accessToken,
+			accessToken: account.accessToken,
+			refreshToken: account.refreshToken,
+			accountId: account.accountId,
+			lastRefresh: new Date().toISOString(),
+		}),
+		lastUsed: account.lastUsed,
+	};
+}
+
+function getStoredAccessToken(account: StoredAccount): string {
+	return account.auth.tokens.access_token;
+}
+
+function getStoredRefreshToken(account: StoredAccount): string {
+	return account.auth.tokens.refresh_token;
+}
+
+function getStoredAccountId(account: StoredAccount): string | undefined {
+	return account.auth.tokens.account_id ?? getJwtAccountId(account.auth.tokens.access_token);
+}
+
+function getStoredExpiresAt(account: StoredAccount): number | undefined {
+	return getJwtExpiry(account.auth.tokens.access_token);
+}
+
+function createOAuthAuthEntry(account: StoredAccount): OAuthAuthEntry {
+	return {
+		type: "oauth",
+		access: getStoredAccessToken(account),
+		refresh: getStoredRefreshToken(account),
+		expires: getStoredExpiresAt(account) ?? Date.now(),
+		...(getStoredAccountId(account) ? { accountId: getStoredAccountId(account) } : {}),
+	};
+}
+
+function areCodexAuthPayloadsEqual(a?: CodexAuthPayload, b?: CodexAuthPayload): boolean {
+	if (!a || !b) return false;
+	return (
+		a.auth_mode === b.auth_mode &&
+		a.OPENAI_API_KEY === b.OPENAI_API_KEY &&
+		a.last_refresh === b.last_refresh &&
+		a.tokens.id_token === b.tokens.id_token &&
+		a.tokens.access_token === b.tokens.access_token &&
+		a.tokens.refresh_token === b.tokens.refresh_token &&
+		a.tokens.account_id === b.tokens.account_id
+	);
+}
+
+function base64UrlEncode(input: Buffer): string {
+	return input
+		.toString("base64")
+		.replace(/\+/g, "-")
+		.replace(/\//g, "_")
+		.replace(/=+$/g, "");
+}
+
+function createPkceCodes(): { verifier: string; challenge: string } {
+	const verifier = base64UrlEncode(randomBytes(32));
+	const challenge = createHash("sha256").update(verifier).digest("base64url");
+	return { verifier, challenge };
+}
+
+function createOAuthState(): string {
+	return randomBytes(16).toString("hex");
+}
+
+function parseAuthorizationInput(input: string): { code?: string; state?: string } {
+	const value = input.trim();
+	if (!value) return {};
+	try {
+		const url = new URL(value);
+		return {
+			code: url.searchParams.get("code") ?? undefined,
+			state: url.searchParams.get("state") ?? undefined,
+		};
+	} catch {
+		// Not a URL.
+	}
+	if (value.includes("#")) {
+		const [code, state] = value.split("#", 2);
+		return { code, state };
+	}
+	if (value.includes("code=")) {
+		const params = new URLSearchParams(value);
+		return {
+			code: params.get("code") ?? undefined,
+			state: params.get("state") ?? undefined,
+		};
+	}
+	return { code: value };
+}
+
+function createAuthorizationFlow(originator = "pi"): { verifier: string; state: string; url: string } {
+	const { verifier, challenge } = createPkceCodes();
+	const state = createOAuthState();
+	const url = new URL(OPENAI_CODEX_AUTHORIZE_URL);
+	url.searchParams.set("response_type", "code");
+	url.searchParams.set("client_id", OPENAI_CODEX_CLIENT_ID);
+	url.searchParams.set("redirect_uri", OPENAI_CODEX_REDIRECT_URI);
+	url.searchParams.set("scope", OPENAI_CODEX_SCOPE);
+	url.searchParams.set("code_challenge", challenge);
+	url.searchParams.set("code_challenge_method", "S256");
+	url.searchParams.set("state", state);
+	url.searchParams.set("id_token_add_organizations", "true");
+	url.searchParams.set("codex_cli_simplified_flow", "true");
+	url.searchParams.set("originator", originator);
+	return { verifier, state, url: url.toString() };
+}
+
+async function exchangeAuthorizationCode(code: string, verifier: string): Promise<TokenExchangeResult> {
+	const response = await fetch(OPENAI_CODEX_TOKEN_URL, {
+		method: "POST",
+		headers: { "Content-Type": "application/x-www-form-urlencoded" },
+		body: new URLSearchParams({
+			grant_type: "authorization_code",
+			client_id: OPENAI_CODEX_CLIENT_ID,
+			code,
+			code_verifier: verifier,
+			redirect_uri: OPENAI_CODEX_REDIRECT_URI,
+		}),
+	});
+	if (!response.ok) return { type: "failed" };
+	const json = (await response.json()) as Record<string, unknown>;
+	if (
+		typeof json.access_token !== "string" ||
+		typeof json.refresh_token !== "string" ||
+		typeof json.expires_in !== "number"
+	) {
+		return { type: "failed" };
+	}
+	return {
+		type: "success",
+		idToken: typeof json.id_token === "string" ? json.id_token : undefined,
+		access: json.access_token,
+		refresh: json.refresh_token,
+		expires: Date.now() + json.expires_in * 1000,
+	};
+}
+
+async function refreshOpenAICodexAuth(refreshToken: string): Promise<OpenAICodexCredentials> {
+	const response = await fetch(OPENAI_CODEX_TOKEN_URL, {
+		method: "POST",
+		headers: { "Content-Type": "application/x-www-form-urlencoded" },
+		body: new URLSearchParams({
+			grant_type: "refresh_token",
+			refresh_token: refreshToken,
+			client_id: OPENAI_CODEX_CLIENT_ID,
+		}),
+	});
+	if (!response.ok) {
+		throw new Error("Failed to refresh OpenAI Codex token");
+	}
+	const json = (await response.json()) as Record<string, unknown>;
+	if (
+		typeof json.access_token !== "string" ||
+		typeof json.refresh_token !== "string" ||
+		typeof json.expires_in !== "number"
+	) {
+		throw new Error("Failed to refresh OpenAI Codex token");
+	}
+	const accountId = getJwtAccountId(json.access_token);
+	if (!accountId) {
+		throw new Error("Failed to extract accountId from token");
+	}
+	return {
+		access: json.access_token,
+		refresh: json.refresh_token,
+		expires: Date.now() + json.expires_in * 1000,
+		accountId,
+		...(typeof json.id_token === "string" ? { idToken: json.id_token } : {}),
+	};
+}
+
+async function loginOpenAICodexWithIdToken(options: {
+	onAuth: (info: { url: string; instructions?: string }) => void;
+	onPrompt: (prompt: { message: string; placeholder?: string; allowEmpty?: boolean }) => Promise<string>;
+	originator?: string;
+}): Promise<OpenAICodexCredentials> {
+	const { verifier, state, url } = createAuthorizationFlow(options.originator);
+	let lastCode: string | undefined;
+	let cancelled = false;
+	let serverListening = false;
+	const server = createServer((req, res) => {
+		try {
+			const requestUrl = new URL(req.url || "", "http://localhost");
+			if (requestUrl.pathname !== "/auth/callback") {
+				res.statusCode = 404;
+				res.end("Not found");
+				return;
+			}
+			if (requestUrl.searchParams.get("state") !== state) {
+				res.statusCode = 400;
+				res.end("State mismatch");
+				return;
+			}
+			const code = requestUrl.searchParams.get("code");
+			if (!code) {
+				res.statusCode = 400;
+				res.end("Missing authorization code");
+				return;
+			}
+			res.statusCode = 200;
+			res.setHeader("Content-Type", "text/html; charset=utf-8");
+			res.end("<!doctype html><html><body><p>Authentication successful. Return to your terminal to continue.</p></body></html>");
+			lastCode = code;
+		} catch {
+			res.statusCode = 500;
+			res.end("Internal error");
+		}
+	});
+
+	await new Promise<void>((resolve) => {
+		server.listen(1455, "127.0.0.1", () => {
+			serverListening = true;
+			resolve();
+		});
+		server.on("error", () => {
+			cancelled = true;
+			resolve();
+		});
+	});
+
+	options.onAuth({ url, instructions: "A browser window should open. Complete login to finish." });
+	try {
+		let code: string | undefined;
+		if (!cancelled) {
+			for (let i = 0; i < OAUTH_CALLBACK_POLL_ATTEMPTS; i += 1) {
+				if (lastCode) {
+					code = lastCode;
+					break;
+				}
+				await new Promise((resolve) => setTimeout(resolve, OAUTH_CALLBACK_POLL_INTERVAL_MS));
+			}
+		}
+		if (!code) {
+			const input = await options.onPrompt({
+				message: "Paste the authorization code (or full redirect URL):",
+			});
+			const parsed = parseAuthorizationInput(input);
+			if (parsed.state && parsed.state !== state) {
+				throw new Error("State mismatch");
+			}
+			code = parsed.code;
+		}
+		if (!code) {
+			throw new Error("Missing authorization code");
+		}
+		const tokenResult = await exchangeAuthorizationCode(code, verifier);
+		if (tokenResult.type !== "success") {
+			throw new Error("Token exchange failed");
+		}
+		const accountId = getJwtAccountId(tokenResult.access);
+		if (!accountId) {
+			throw new Error("Failed to extract accountId from token");
+		}
+		return {
+			access: tokenResult.access,
+			refresh: tokenResult.refresh,
+			expires: tokenResult.expires,
+			accountId,
+			...(tokenResult.idToken ? { idToken: tokenResult.idToken } : {}),
+		};
+	} finally {
+		if (serverListening) {
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+		}
+	}
 }
 
 function getAuthStorage(ctx?: ExtensionContext): AuthStorageLike | undefined {
@@ -292,25 +730,33 @@ function formatAccountTags(parts: Array<string | null | undefined>): string {
 class MultiCodexUsageOverlay {
 	private rows: UsagePanelRowState[];
 	private selectedIndex = 0;
-	private switchingEmail?: string;
+	private busyEmail?: string;
+	private busyTarget?: "pi" | "codex";
 	private disposed = false;
 	private refreshRequestId = 0;
+	private piActiveEmail?: string;
+	private codexActiveEmail?: string;
 
 	constructor(
 		private readonly tui: TUI,
 		private readonly theme: Theme,
 		accounts: StoredAccount[],
-		private readonly activeEmail: string | undefined,
-		private readonly isAuthSynced: (email: string) => boolean,
+		piActiveEmail: string | undefined,
+		codexActiveEmail: string | undefined,
+		private readonly isPiAuthSynced: (email: string) => boolean,
+		private readonly isCodexAuthSynced: (email: string) => boolean,
 		private readonly loadUsage: (account: StoredAccount, force?: boolean) => Promise<CodexUsageSnapshot | undefined>,
-		private readonly switchAccount: (email: string) => Promise<boolean>,
+		private readonly syncPiAccount: (email: string) => Promise<boolean>,
+		private readonly syncCodexAccount: (email: string) => Promise<boolean>,
 		private readonly done: () => void,
 	) {
 		this.rows = accounts.map((account) => ({
 			account,
 			loading: true,
 		}));
-		const activeIndex = accounts.findIndex((account) => account.email === activeEmail);
+		this.piActiveEmail = piActiveEmail;
+		this.codexActiveEmail = codexActiveEmail;
+		const activeIndex = accounts.findIndex((account) => account.email === piActiveEmail || account.email === codexActiveEmail);
 		this.selectedIndex = activeIndex >= 0 ? activeIndex : 0;
 	}
 
@@ -338,7 +784,11 @@ class MultiCodexUsageOverlay {
 			return;
 		}
 		if (matchesKey(data, "return")) {
-			void this.activateSelected();
+			void this.activateSelectedPi();
+			return;
+		}
+		if (matchesKey(data, "s")) {
+			void this.activateSelectedCodex();
 		}
 	}
 
@@ -354,18 +804,22 @@ class MultiCodexUsageOverlay {
 
 		lines.push(th.fg("border", `╭${"─".repeat(innerW)}╮`));
 		lines.push(row(` ${th.fg("accent", th.bold("MultiCodex Usage"))}`));
-		lines.push(row(` ${th.fg("dim", "Enter switch • r refresh • Esc close")}`));
+		lines.push(row(` ${th.fg("dim", "Enter sync Pi • s sync Codex • r refresh • Esc close")}`));
 		lines.push(row());
 
 		for (let i = 0; i < this.rows.length; i += 1) {
 			const item = this.rows[i]!;
 			const isSelected = i === this.selectedIndex;
-			const isActive = this.activeEmail === item.account.email;
+			const isPiActive = this.piActiveEmail === item.account.email;
+			const isCodexActive = this.codexActiveEmail === item.account.email;
 			const prefix = isSelected ? th.fg("accent", "▶") : th.fg("dim", "•");
 			const labelTags = formatAccountTags([
-				isActive ? "active" : null,
-				this.isAuthSynced(item.account.email) ? "synced" : null,
-				this.switchingEmail === item.account.email ? "switching" : null,
+				isPiActive ? "pi-active" : null,
+				isCodexActive ? "codex-active" : null,
+				this.isPiAuthSynced(item.account.email) ? "pi-synced" : null,
+				this.isCodexAuthSynced(item.account.email) ? "codex-synced" : null,
+				this.busyEmail === item.account.email && this.busyTarget === "pi" ? "syncing-pi" : null,
+				this.busyEmail === item.account.email && this.busyTarget === "codex" ? "syncing-codex" : null,
 				isUsageStale(item.usage) ? "stale" : null,
 			]);
 			const email = isSelected ? th.fg("accent", item.account.email) : item.account.email;
@@ -418,22 +872,35 @@ class MultiCodexUsageOverlay {
 		);
 	}
 
-	private async activateSelected(): Promise<void> {
+	private async activateSelectedPi(): Promise<void> {
 		const selected = this.rows[this.selectedIndex];
-		if (!selected || this.switchingEmail) return;
-		if (selected.account.email === this.activeEmail) {
-			this.done();
-			return;
-		}
-		this.switchingEmail = selected.account.email;
+		if (!selected || this.busyEmail) return;
+		this.busyEmail = selected.account.email;
+		this.busyTarget = "pi";
 		this.refresh();
-		const ok = await this.switchAccount(selected.account.email);
+		const ok = await this.syncPiAccount(selected.account.email);
 		if (this.disposed) return;
-		this.switchingEmail = undefined;
 		if (ok) {
-			this.done();
-			return;
+			this.piActiveEmail = selected.account.email;
 		}
+		this.busyEmail = undefined;
+		this.busyTarget = undefined;
+		this.refresh();
+	}
+
+	private async activateSelectedCodex(): Promise<void> {
+		const selected = this.rows[this.selectedIndex];
+		if (!selected || this.busyEmail) return;
+		this.busyEmail = selected.account.email;
+		this.busyTarget = "codex";
+		this.refresh();
+		const ok = await this.syncCodexAccount(selected.account.email);
+		if (this.disposed) return;
+		if (ok) {
+			this.codexActiveEmail = selected.account.email;
+		}
+		this.busyEmail = undefined;
+		this.busyTarget = undefined;
 		this.refresh();
 	}
 }
@@ -465,6 +932,13 @@ class ManualAccountManager {
 		return this.data.accounts[0];
 	}
 
+	getCodexActiveAccount(): StoredAccount | undefined {
+		if (this.data.codexActiveEmail) {
+			return this.getAccount(this.data.codexActiveEmail);
+		}
+		return undefined;
+	}
+
 	setActiveAccount(email: string): void {
 		const account = this.getAccount(email);
 		if (!account) return;
@@ -473,29 +947,41 @@ class ManualAccountManager {
 		this.save();
 	}
 
+	setCodexActiveAccount(email: string): void {
+		const account = this.getAccount(email);
+		if (!account) return;
+		account.lastUsed = Date.now();
+		this.data.codexActiveEmail = account.email;
+		this.save();
+	}
+
 	addOrUpdateAccount(
 		email: string,
-		creds: OAuthCredentials,
+		creds: OpenAICodexCredentials,
 		options?: { setActive?: boolean; touchLastUsed?: boolean },
 	): void {
 		const setActive = options?.setActive ?? true;
 		const touchLastUsed = options?.touchLastUsed ?? true;
 		const now = Date.now();
-		const accountId = typeof creds.accountId === "string" ? creds.accountId : undefined;
 		const existing = this.getAccount(email);
+		const previousIdToken = existing?.auth.tokens.id_token;
+		const auth = createCodexAuthPayload({
+			idToken:
+				typeof creds.idToken === "string" && creds.idToken.length > 0
+					? creds.idToken
+					: previousIdToken ?? creds.access,
+			accessToken: creds.access,
+			refreshToken: creds.refresh,
+			accountId: typeof creds.accountId === "string" ? creds.accountId : undefined,
+			lastRefresh: new Date().toISOString(),
+		});
 		if (existing) {
-			existing.accessToken = creds.access;
-			existing.refreshToken = creds.refresh;
-			existing.expiresAt = creds.expires;
-			existing.accountId = accountId;
+			existing.auth = auth;
 			if (touchLastUsed) existing.lastUsed = now;
 		} else {
 			this.data.accounts.push({
 				email,
-				accessToken: creds.access,
-				refreshToken: creds.refresh,
-				expiresAt: creds.expires,
-				accountId,
+				auth,
 				lastUsed: touchLastUsed ? now : undefined,
 			});
 		}
@@ -504,13 +990,7 @@ class ManualAccountManager {
 	}
 
 	private toOAuthAuthEntry(account: StoredAccount): OAuthAuthEntry {
-		return {
-			type: "oauth",
-			access: account.accessToken,
-			refresh: account.refreshToken,
-			expires: account.expiresAt,
-			...(account.accountId ? { accountId: account.accountId } : {}),
-		};
+		return createOAuthAuthEntry(account);
 	}
 
 	private readRuntimeAuthEntry(
@@ -550,31 +1030,40 @@ class ManualAccountManager {
 		return account;
 	}
 
+	syncAccountToCodexAuth(account: StoredAccount): void {
+		writeJsonFile(CODEX_AUTH_FILE, account.auth);
+	}
+
 	async ensureAccountFresh(email: string, minValidityMs = SWITCH_MIN_TOKEN_VALIDITY_MS): Promise<StoredAccount | undefined> {
 		const account = this.getAccount(email);
 		if (!account) return undefined;
-		if (Date.now() < account.expiresAt - minValidityMs) {
+		const expiresAt = getStoredExpiresAt(account);
+		if (typeof expiresAt === "number" && Date.now() < expiresAt - minValidityMs) {
 			return account;
 		}
 
-		const refreshed = await refreshOpenAICodexToken(account.refreshToken);
+		const refreshed = await refreshOpenAICodexAuth(getStoredRefreshToken(account));
 		this.addOrUpdateAccount(account.email, refreshed, { setActive: false, touchLastUsed: false });
 		return this.getAccount(account.email);
 	}
 
 	private async ensureValidToken(account: StoredAccount): Promise<StoredAccount> {
-		if (Date.now() < account.expiresAt - 5 * 60 * 1000) {
+		const expiresAt = getStoredExpiresAt(account);
+		if (typeof expiresAt === "number" && Date.now() < expiresAt - 5 * 60 * 1000) {
 			return account;
 		}
 
-		const refreshed = await refreshOpenAICodexToken(account.refreshToken);
+		const refreshed = await refreshOpenAICodexAuth(getStoredRefreshToken(account));
 		this.addOrUpdateAccount(account.email, refreshed, { setActive: false, touchLastUsed: false });
 		return this.getAccount(account.email) ?? {
 			...account,
-			accessToken: refreshed.access,
-			refreshToken: refreshed.refresh,
-			expiresAt: refreshed.expires,
-			accountId: typeof refreshed.accountId === "string" ? refreshed.accountId : account.accountId,
+			auth: createCodexAuthPayload({
+				idToken: refreshed.idToken ?? account.auth.tokens.id_token,
+				accessToken: refreshed.access,
+				refreshToken: refreshed.refresh,
+				accountId: typeof refreshed.accountId === "string" ? refreshed.accountId : getStoredAccountId(account),
+				lastRefresh: new Date().toISOString(),
+			}),
 		};
 	}
 
@@ -590,11 +1079,12 @@ class ManualAccountManager {
 			const controller = new AbortController();
 			timeout = setTimeout(() => controller.abort(), USAGE_REQUEST_TIMEOUT_MS);
 			const headers: Record<string, string> = {
-				Authorization: `Bearer ${resolvedAccount.accessToken}`,
+				Authorization: `Bearer ${getStoredAccessToken(resolvedAccount)}`,
 				Accept: "application/json",
 			};
-			if (resolvedAccount.accountId) {
-				headers["ChatGPT-Account-Id"] = resolvedAccount.accountId;
+			const accountId = getStoredAccountId(resolvedAccount);
+			if (accountId) {
+				headers["ChatGPT-Account-Id"] = accountId;
 			}
 
 			const response = await fetch("https://chatgpt.com/backend-api/wham/usage", {
@@ -638,6 +1128,12 @@ class ManualAccountManager {
 		return fileEntry.refresh === expected.refresh && fileEntry.access === expected.access;
 	}
 
+	isCodexAuthSyncedFor(email: string): boolean {
+		const account = this.getAccount(email);
+		if (!account) return false;
+		return areCodexAuthPayloadsEqual(loadCodexAuthData(), account.auth);
+	}
+
 }
 
 async function openLoginInBrowser(
@@ -645,25 +1141,27 @@ async function openLoginInBrowser(
 	ctx: ExtensionCommandContext,
 	url: string,
 ): Promise<void> {
-	let command: string;
-	let args: string[];
+	const attempts: Array<{ command: string; args: string[] }> = [];
 
 	if (process.platform === "darwin") {
-		command = "open";
-		args = [url];
+		attempts.push({ command: "open", args: [url] });
 	} else if (process.platform === "win32") {
-		command = "cmd";
-		args = ["/c", "start", "", url];
+		attempts.push({ command: "rundll32.exe", args: ["url.dll,FileProtocolHandler", url] });
+		attempts.push({ command: "explorer.exe", args: [url] });
 	} else {
-		command = "xdg-open";
-		args = [url];
+		attempts.push({ command: "xdg-open", args: [url] });
 	}
 
-	try {
-		await pi.exec(command, args);
-	} catch {
-		ctx.ui.notify("Could not open browser automatically. Open login URL manually.", "warning");
+	for (const attempt of attempts) {
+		try {
+			await pi.exec(attempt.command, attempt.args);
+			return;
+		} catch {
+			// Try the next opener.
+		}
 	}
+
+	ctx.ui.notify("Could not open browser automatically. Open login URL manually.", "warning");
 }
 
 export default function multicodexExtension(pi: ExtensionAPI) {
@@ -747,8 +1245,12 @@ export default function multicodexExtension(pi: ExtensionAPI) {
 					},
 					onPrompt: async ({ message }) => (await ctx.ui.input(message)) || "",
 				});
+				const codexCreds = await refreshOpenAICodexAuth(creds.refresh).catch(() => ({
+					...creds,
+					idToken: creds.access,
+				}));
 
-				manager.addOrUpdateAccount(email, creds);
+				manager.addOrUpdateAccount(email, codexCreds);
 				const active = manager.syncActiveToAuth(ctx);
 				startPolling(ctx);
 				await updateStatus(ctx, { force: true, notifyWarnings: true });
@@ -763,23 +1265,46 @@ export default function multicodexExtension(pi: ExtensionAPI) {
 		try {
 			const freshAccount = await manager.ensureAccountFresh(email);
 			if (!freshAccount) {
-				ctx.ui.notify("Failed to switch account", "error");
+				ctx.ui.notify("Failed to sync Pi auth", "error");
 				return false;
 			}
 
 			manager.syncAccountToAuth(freshAccount, ctx);
 			if (!manager.isAuthSyncedFor(email, ctx)) {
-				ctx.ui.notify("Switch incomplete: runtime auth did not match selected account", "error");
+				ctx.ui.notify("Pi sync incomplete: runtime auth did not match selected account", "error");
 				return false;
 			}
 
 			manager.setActiveAccount(email);
 			startPolling(ctx);
 			void updateStatus(ctx, { force: true, notifyWarnings: true });
-			ctx.ui.notify("Switched account (openai-codex synced)", "info");
+			ctx.ui.notify("Synced selected account to Pi auth", "info");
 			return true;
 		} catch (error) {
-			ctx.ui.notify(`Switch failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+			ctx.ui.notify(`Pi sync failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+			return false;
+		}
+	}
+
+	async function switchCodexAccount(email: string, ctx: ExtensionCommandContext): Promise<boolean> {
+		try {
+			const freshAccount = await manager.ensureAccountFresh(email);
+			if (!freshAccount) {
+				ctx.ui.notify("Failed to sync Codex auth", "error");
+				return false;
+			}
+
+			manager.syncAccountToCodexAuth(freshAccount);
+			if (!manager.isCodexAuthSyncedFor(email)) {
+				ctx.ui.notify("Codex sync incomplete: ~/.codex/auth.json did not match selected account", "error");
+				return false;
+			}
+
+			manager.setCodexActiveAccount(email);
+			ctx.ui.notify("Synced selected account to ~/.codex/auth.json", "info");
+			return true;
+		} catch (error) {
+			ctx.ui.notify(`Codex sync failed: ${error instanceof Error ? error.message : String(error)}`, "error");
 			return false;
 		}
 	}
@@ -822,9 +1347,12 @@ export default function multicodexExtension(pi: ExtensionAPI) {
 					theme,
 					accounts,
 					manager.getActiveAccount()?.email,
+					manager.getCodexActiveAccount()?.email,
 					(email) => manager.isAuthSyncedFor(email, ctx),
+					(email) => manager.isCodexAuthSyncedFor(email),
 					(account, force) => resolveUsage(account, { force }),
 					(email) => switchActiveAccount(email, ctx),
+					(email) => switchCodexAccount(email, ctx),
 					() => done(undefined),
 				);
 				queueMicrotask(() => overlay.start());

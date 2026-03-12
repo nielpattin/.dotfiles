@@ -21,7 +21,9 @@
     "-extensions\\usage-extension\\index.ts",
     "-extensions\\welcome\\index.ts",
     "+extensions\\you-are-right-killer.ts",
-    "+extensions\\working-vibes\\index.ts"
+    "+extensions\\working-vibes\\index.ts",
+    "-extensions\\session-query\\index.ts",
+    "+extensions\\smart-sessions\\index.ts"
   ],
   "skills": [
     "+skills\\drawio-diagrams-enhanced\\SKILL.md",
@@ -33,7 +35,8 @@
     "-skills\\tracer-bullet\\SKILL.md",
     "-skills\\update-pi\\SKILL.md",
     "-skills\\visit-webpage\\SKILL.md",
-    "-skills\\web-search\\SKILL.md"
+    "-skills\\web-search\\SKILL.md",
+    "-skills\\session-query\\SKILL.md"
   ],
   "themes": [
     "-themes\\cyberpunk.json",
