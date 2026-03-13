@@ -11,7 +11,7 @@ import {
   loadTaskResultFromSession,
   persistTaskMetadata,
   type TaskMetadataRecord,
-} from "./taskfiles.js";
+} from "./task-files.js";
 
 export type TaskState = "queued" | "running" | "success" | "error" | "aborted";
 
@@ -72,9 +72,6 @@ function normalizeSingleResult(
   if (!isRecord(raw)) return undefined;
 
   const partial = raw as Partial<SingleResult>;
-  const legacyTaskId = typeof (raw as { toolCallId?: unknown }).toolCallId === "string"
-    ? (raw as { toolCallId: string }).toolCallId
-    : undefined;
   const startedAt = toTimestamp(partial.startedAt) ?? fallbackTimestamp;
   const updatedAt = toTimestamp(partial.updatedAt) ?? startedAt;
   const usage = isRecord(partial.usage)
@@ -91,7 +88,7 @@ function normalizeSingleResult(
 
   return {
     sessionId: typeof partial.sessionId === "string" ? partial.sessionId : undefined,
-    taskId: typeof partial.taskId === "string" ? partial.taskId : legacyTaskId,
+    taskId: typeof partial.taskId === "string" ? partial.taskId : undefined,
     siblingIndex: typeof partial.siblingIndex === "number" ? partial.siblingIndex : undefined,
     agent: typeof partial.agent === "string" ? partial.agent : "unknown",
     agentSource: partial.agentSource === "user" || partial.agentSource === "project" || partial.agentSource === "unknown"

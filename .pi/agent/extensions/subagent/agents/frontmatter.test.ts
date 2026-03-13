@@ -41,7 +41,7 @@ You are a worker.
     expect(parsed?.cwd).toBeUndefined();
   });
 
-  it("updates canonical defaults and strips legacy alias keys", () => {
+  it("updates canonical defaults", () => {
     const filePath = makeAgentFile(`---
 name: worker
 description: handles tasks
@@ -63,8 +63,5 @@ You are a worker.
     expect(next).toContain('skills: - "triage-expert"');
     expect(next).toContain('extensions: - "read-map"');
     expect(next).toContain('cwd: "/repo"');
-    expect(next).not.toContain("skill:");
-    expect(next).not.toContain("enabledExtensions:");
-    expect(next).not.toContain("defaultCwd:");
   });
 });

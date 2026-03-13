@@ -4,38 +4,85 @@
  * Spawns isolated `pi` processes and streams results back via callbacks.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import type { AgentConfig } from "./agents/types.js";
-import { SUBAGENT_FALLBACK_TEXT } from "./constants.js";
+import type { AgentConfig } from "../agents/types.js";
+import { SUBAGENT_FALLBACK_TEXT } from "../constants.js";
 import {
   type SingleResult,
   type SubagentDetails,
   type SkillLoadInfo,
   emptyUsage,
   getFinalOutput,
-} from "./types.js";
-import type { SessionSnapshot } from "./tasktool/snapshot.js";
-import { deriveTaskDirectory, deriveTaskSessionPath } from "./ui/taskfiles.js";
-import { buildPiArgs } from "./runner/args.js";
-import { runChildProcess, setFailure } from "./runner/process.js";
-import { buildTaskPromptWithAgentSkills, formatSkillLoadSummary } from "./runner/prompt.js";
-import { getPiSpawnTarget } from "./runner/spawntarget.js";
-import {
-  buildForkSnapshotPrompt,
-  cleanupTempDir,
-  initializeForkChildSessionFile,
-  initializeSpawnChildSessionFile,
-  writePromptToTempFile,
-} from "./runner/tempfiles.js";
+  toLightweightResult,
+} from "../types.js";
+import type { SessionSnapshot } from "../task-tools/snapshot.js";
+import { deriveTaskDirectory, deriveTaskSessionPath } from "../state/task-files.js";
+import { runChildProcess, setFailure } from "./run-child-process.js";
+import { buildTaskPromptWithAgentSkills, formatSkillLoadSummary } from "./prompt.js";
+import { resolveSpawnTarget } from "./resolve-spawn-target.js";
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
-function toLightweightResult(result: SingleResult): SingleResult {
-  return {
-    ...result,
-    messages: [],
-    activeTool: undefined,
+function buildPiArgs(
+  agent: AgentConfig,
+  appendSystemPrompt: string | null,
+  prompt: string,
+  childSessionFile: string,
+  childSessionDir: string,
+  thinkingLevel: string | undefined,
+  overrideExtensions?: string[],
+): string[] {
+  const args: string[] = [
+    "--mode",
+    "json",
+    "-p",
+    "--session",
+    childSessionFile,
+    "--session-dir",
+    childSessionDir,
+  ];
+
+  if (agent.model) args.push("--model", agent.model);
+  if (thinkingLevel) args.push("--thinking", thinkingLevel);
+  if (agent.tools && agent.tools.length > 0) {
+    args.push("--tools", agent.tools.join(","));
+  }
+
+  const effectiveExtensions = overrideExtensions ?? agent.extensions;
+  if (effectiveExtensions !== undefined) {
+    args.push("--no-extensions");
+    for (const extension of effectiveExtensions) {
+      args.push("-e", extension);
+    }
+  }
+
+  if (appendSystemPrompt) args.push("--append-system-prompt", appendSystemPrompt);
+  args.push(prompt);
+  return args;
+}
+
+function initializeChildSessionFile(sessionFile: string): void {
+  fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+  if (fs.existsSync(sessionFile)) {
+    fs.unlinkSync(sessionFile);
+  }
+}
+
+function buildForkSnapshotPrompt(snapshot: SessionSnapshot): string {
+  const serializableSnapshot = {
+    header: snapshot.header,
+    entries: snapshot.entries,
   };
+
+  return [
+    "Forked context from parent Pi session snapshot:",
+    "```json",
+    JSON.stringify(serializableSnapshot, null, 2),
+    "```",
+    "Use this context as inherited conversation state for the delegated task.",
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -230,11 +277,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     sessionFile: childSessionFile,
   };
 
-  if (delegationMode === "fork") {
-    initializeForkChildSessionFile(childSessionFile);
-  } else {
-    initializeSpawnChildSessionFile(childSessionFile);
+  if (signal?.aborted) {
+    result.exitCode = 130;
+    result.updatedAt = Date.now();
+    setFailure(result, "abort", "Task was aborted.");
+    return result;
   }
+
+  initializeChildSessionFile(childSessionFile);
 
   const emitUpdate = () => {
     onUpdate?.({
@@ -248,116 +298,77 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
     });
   };
 
-  let promptTmpDir: string | null = null;
-  let promptTmpPath: string | null = null;
-  if (agent.systemPrompt.trim()) {
-    const tmp = writePromptToTempFile(agent.name, agent.systemPrompt);
-    promptTmpDir = tmp.dir;
-    promptTmpPath = tmp.filePath;
+  const appendSystemPrompt = agent.systemPrompt.trim() || null;
+
+  const taskPrompt = buildTaskPromptWithAgentSkills(
+    task,
+    agent,
+    taskCwd ?? cwd,
+    overrideSkills,
+  );
+
+  const effectivePrompt = delegationMode === "fork" && forkSessionSnapshot
+    ? `${buildForkSnapshotPrompt(forkSessionSnapshot)}\n\n${taskPrompt.prompt}`
+    : taskPrompt.prompt;
+
+  const skillLoad: SkillLoadInfo | undefined =
+    taskPrompt.requestedSkills.length > 0
+      ? {
+          lookupCwd: taskCwd ?? cwd,
+          requested: taskPrompt.requestedSkills,
+          loaded: taskPrompt.loadedSkills,
+          missing: taskPrompt.missingSkills,
+          warnings: taskPrompt.warnings,
+        }
+      : undefined;
+
+  if (skillLoad) {
+    result.skillLoad = skillLoad;
+    result.stderr += `${formatSkillLoadSummary(skillLoad)}\n`;
+  }
+  if (taskPrompt.warnings.length > 0) {
+    result.stderr += `${taskPrompt.warnings.join("\n")}\n`;
   }
 
-  try {
-    const taskPrompt = buildTaskPromptWithAgentSkills(
-      task,
-      agent,
-      taskCwd ?? cwd,
-      overrideSkills,
-    );
-
-    const effectivePrompt = delegationMode === "fork" && forkSessionSnapshot
-      ? `${buildForkSnapshotPrompt(forkSessionSnapshot)}\n\n${taskPrompt.prompt}`
-      : taskPrompt.prompt;
-
-    const skillLoad: SkillLoadInfo | undefined =
-      taskPrompt.requestedSkills.length > 0
-        ? {
-            lookupCwd: taskCwd ?? cwd,
-            requested: taskPrompt.requestedSkills,
-            loaded: taskPrompt.loadedSkills,
-            missing: taskPrompt.missingSkills,
-            warnings: taskPrompt.warnings,
-          }
-        : undefined;
-
-    if (skillLoad) {
-      result.skillLoad = skillLoad;
-      result.stderr += `${formatSkillLoadSummary(skillLoad)}\n`;
-    }
-    if (taskPrompt.warnings.length > 0) {
-      result.stderr += `${taskPrompt.warnings.join("\n")}\n`;
-    }
-
-    const piArgs = buildPiArgs(
-      agent,
-      promptTmpPath,
-      effectivePrompt,
-      childSessionFile,
-      childSessionDir,
-      effectiveThinking,
-      overrideExtensions,
-    );
-    const spawnTarget = getPiSpawnTarget(piArgs);
-    if (!spawnTarget) {
-      return {
-        ...result,
-        exitCode: 1,
-        stopReason: "error",
-        errorMessage: "Failed to resolve Pi CLI script on Windows. Cannot start task.",
-        stderr: "Failed to resolve Pi CLI script on Windows. Cannot start task.",
-        failureCategory: "startup",
-      };
-    }
-
-    const runOutput = await runChildProcess({
-      spawnTarget,
-      cwd: taskCwd ?? cwd,
-      parentDepth,
-      signal,
-      result,
-      emitUpdate,
-    });
-
-    result.exitCode = runOutput.exitCode;
-    result.updatedAt = Date.now();
-    if (runOutput.wasAborted) {
-      result.exitCode = 130;
-      setFailure(result, "abort", "Task was aborted.");
-    } else if (!result.failureCategory && result.stopReason === "aborted") {
-      setFailure(result, "abort", result.errorMessage || "Task was aborted.");
-    } else if (!result.failureCategory && (result.stopReason === "error" || result.exitCode > 0)) {
-      setFailure(result, "runtime");
-    }
-    return result;
-  } finally {
-    cleanupTempDir(promptTmpDir);
+  const piArgs = buildPiArgs(
+    agent,
+    appendSystemPrompt,
+    effectivePrompt,
+    childSessionFile,
+    childSessionDir,
+    effectiveThinking,
+    overrideExtensions,
+  );
+  const spawnTarget = resolveSpawnTarget(piArgs);
+  if (!spawnTarget) {
+    return {
+      ...result,
+      exitCode: 1,
+      stopReason: "error",
+      errorMessage: "Failed to resolve Pi CLI script on Windows. Cannot start task.",
+      stderr: "Failed to resolve Pi CLI script on Windows. Cannot start task.",
+      failureCategory: "startup",
+    };
   }
-}
 
-// ---------------------------------------------------------------------------
-// Concurrency helper
-// ---------------------------------------------------------------------------
+  const runOutput = await runChildProcess({
+    spawnTarget,
+    cwd: taskCwd ?? cwd,
+    parentDepth,
+    signal,
+    result,
+    emitUpdate,
+  });
 
-/**
- * Map over items with a bounded number of concurrent workers.
- */
-export async function mapConcurrent<TIn, TOut>(
-  items: TIn[],
-  concurrency: number,
-  fn: (item: TIn, index: number) => Promise<TOut>,
-): Promise<TOut[]> {
-  if (items.length === 0) return [];
-  const limit = Math.max(1, Math.min(concurrency, items.length));
-  const results: TOut[] = new Array(items.length);
-  let nextIndex = 0;
-
-  const worker = async () => {
-    while (true) {
-      const i = nextIndex++;
-      if (i >= items.length) return;
-      results[i] = await fn(items[i]!, i);
-    }
-  };
-
-  await Promise.all(Array.from({ length: limit }, () => worker()));
-  return results;
+  result.exitCode = runOutput.exitCode;
+  result.updatedAt = Date.now();
+  if (runOutput.wasAborted) {
+    result.exitCode = 130;
+    setFailure(result, "abort", "Task was aborted.");
+  } else if (!result.failureCategory && result.stopReason === "aborted") {
+    setFailure(result, "abort", result.errorMessage || "Task was aborted.");
+  } else if (!result.failureCategory && (result.stopReason === "error" || result.exitCode > 0)) {
+    setFailure(result, "runtime");
+  }
+  return result;
 }

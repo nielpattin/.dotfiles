@@ -73,27 +73,6 @@ export function validateTaskToolParams(raw: unknown):
     return { ok: false, message: "Invalid parameters. Expected an object payload." };
   }
 
-  if (raw.mode === "spawn" || raw.mode === "fork") {
-    return {
-      ok: false,
-      message: "Legacy mode values `spawn|fork` are no longer supported. Use `mode: \"single\"` or `mode: \"parallel\"`.",
-    };
-  }
-
-  if (raw.tasks !== undefined) {
-    return {
-      ok: false,
-      message: "Legacy `tasks` payload is no longer supported. Use `{ mode: \"single\", operation: {...} }` or `{ mode: \"parallel\", operations: [...] }`.",
-    };
-  }
-
-  if (raw.agent !== undefined || raw.task !== undefined || raw.summary !== undefined) {
-    return {
-      ok: false,
-      message: "Top-level `{ agent, summary, task }` is not supported. Wrap it under `operation` with `mode: \"single\"`.",
-    };
-  }
-
   if (raw.extension !== undefined || raw.extensions !== undefined) {
     return {
       ok: false,

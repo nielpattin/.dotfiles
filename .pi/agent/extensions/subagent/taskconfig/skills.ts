@@ -1,5 +1,10 @@
 import { loadSkills } from "@mariozechner/pi-coding-agent";
-import type { AvailableSkillInfo } from "./panel.js";
+
+export interface AvailableSkillInfo {
+  name: string;
+  source: string;
+  description?: string;
+}
 
 export function discoverSkillsForTaskConfig(cwd: string): AvailableSkillInfo[] {
   try {

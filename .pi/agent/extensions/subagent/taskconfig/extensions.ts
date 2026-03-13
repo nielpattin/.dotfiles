@@ -1,7 +1,11 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AvailableExtensionInfo } from "./panel.js";
+
+export interface AvailableExtensionInfo {
+  name: string;
+  source: "user" | "project";
+}
 
 function findNearestProjectExtensionsDir(cwd: string): string | null {
   let dir = cwd;

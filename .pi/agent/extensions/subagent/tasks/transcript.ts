@@ -1,10 +1,10 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getFinalOutput } from "../types.js";
-import type { TaskDetail } from "../ui/taskstore.js";
+import type { TaskDetail } from "../state/task-store.js";
 import { blocklabel, blocktone, toneText, type TranscriptKind } from "./theme.js";
 
-export interface TranscriptBlock {
+interface TranscriptBlock {
   kind: TranscriptKind;
   label: string;
   markdown: boolean;
@@ -135,7 +135,7 @@ function toolCallPreview(args: unknown): string {
   return oneLine(String(args), 220) || "No arguments";
 }
 
-export function buildTranscriptBlocks(detail: TaskDetail): TranscriptBlock[] {
+function buildTranscriptBlocks(detail: TaskDetail): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
   const result = detail.result;
 

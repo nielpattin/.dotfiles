@@ -1,19 +1,10 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { matchesKey, parseKey, truncateToWidth, visibleWidth, type TUI } from "@mariozechner/pi-tui";
 import type { AgentConfig } from "../agents/types.js";
+import type { AvailableExtensionInfo } from "./extensions.js";
+import type { AvailableSkillInfo } from "./skills.js";
 
 type TaskConfigField = "skills" | "extensions";
-
-export interface AvailableSkillInfo {
-  name: string;
-  source: string;
-  description?: string;
-}
-
-export interface AvailableExtensionInfo {
-  name: string;
-  source: "user" | "project";
-}
 
 export type TaskConfigPanelResult =
   | { action: "cancel" }

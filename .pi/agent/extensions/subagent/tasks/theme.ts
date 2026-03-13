@@ -16,6 +16,7 @@ function statusColor(status: string): "accent" | "success" | "warning" | "error"
     case "failed":
     case "error":
       return "error";
+    case "aborted":
     case "canceled":
     case "cancelled":
     case "timeout":

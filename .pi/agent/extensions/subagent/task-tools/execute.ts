@@ -2,16 +2,20 @@ import { randomUUID } from "node:crypto";
 import type { AgentConfig } from "../agents/types.js";
 import {
   DEFAULT_DELEGATION_MODE,
-  type DelegationMode,
   type SingleResult,
   type SubagentDetails,
   getFailureCategory,
   getFinalOutput,
 } from "../types.js";
-import { executeParallel, type TaskExecutionOperation } from "./parallel.js";
+import {
+  executeParallel,
+  type TaskExecutionOperation,
+  type TaskExecutionSyncHooks,
+} from "./parallel.js";
 import { captureForkSessionSnapshot, type SessionSnapshotSource } from "./snapshot.js";
 import { type PublicOperation } from "./schema.js";
 import { type BackgroundCompletionEvent } from "./background-completion.js";
+import type { TaskAbortRegistry } from "../state/task-abort-registry.js";
 
 function getRequestedProjectAgents(
   agents: AgentConfig[],
@@ -112,7 +116,7 @@ function appendBackgroundTrackingDetails(
       summary: task.summary,
       status: "queued" as const,
     })),
-    backgroundTrackingHint: "Use task_result with the child session id (optionally waitMs) or /tasks to inspect progress/completion.",
+    backgroundTrackingHint: "Use task_result with the child session id (default waitMs: 0 for immediate lookup). Only poll/wait when the user explicitly asks, or use /tasks.",
   };
 }
 
@@ -125,7 +129,7 @@ export function buildBackgroundQueueToolText(
   return `Background task session ids: ${queued}`;
 }
 
-export interface ExecuteTaskToolParams {
+export interface ExecuteTaskToolParams extends TaskExecutionSyncHooks {
   taskId: string;
   operations: PublicOperation[];
   agents: AgentConfig[];
@@ -147,60 +151,9 @@ export interface ExecuteTaskToolParams {
   maxParallelTasks: number;
   concurrency: number;
   currentDepth: number;
-  upsertDelegatedRun: (
-    key: string,
-    partial: {
-      agent: string;
-      summary: string;
-      state: "queued" | "running" | "success" | "error" | "aborted";
-      startedAt?: number;
-      updatedAt?: number;
-      finishedAt?: number;
-      activity?: string;
-      error?: string;
-    },
-    ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } },
-  ) => void;
-  syncDelegatedRunWithResult: (
-    key: string,
-    fallbackAgent: string,
-    fallbackSummary: string,
-    result: SingleResult,
-    ctx: { hasUI: boolean; ui?: { setWidget?: (...args: any[]) => void } },
-  ) => void;
-  upsertTask: (
-    sessionId: string,
-    partial: {
-      agent: string;
-      summary: string;
-      task: string;
-      status: "queued" | "running" | "success" | "error" | "aborted";
-      delegationMode?: DelegationMode;
-      startedAt?: number;
-      updatedAt?: number;
-      finishedAt?: number;
-      taskId?: string;
-      siblingIndex?: number;
-      provider?: string;
-      model?: string;
-      error?: string;
-      sessionFile?: string;
-    },
-  ) => void;
-  syncTaskWithResult: (
-    sessionId: string,
-    fallback: {
-      agent: string;
-      summary: string;
-      task: string;
-      delegationMode: DelegationMode;
-      taskId?: string;
-      siblingIndex?: number;
-    },
-    result: SingleResult,
-  ) => void;
   originatingSessionId?: string;
   onBackgroundCompletion?: (completion: BackgroundCompletionEvent) => void;
+  taskAbortRegistry: TaskAbortRegistry;
 }
 
 export async function executeTaskTool(params: ExecuteTaskToolParams) {
@@ -224,6 +177,7 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
     syncTaskWithResult,
     originatingSessionId,
     onBackgroundCompletion,
+    taskAbortRegistry,
   } = params;
 
   const tasks = mapOperationsWithAgentDefaults(operations, agents);
@@ -314,13 +268,13 @@ export async function executeTaskTool(params: ExecuteTaskToolParams) {
       onUpdate: options.onUpdate,
       ctx,
       makeDetails,
-      maxParallelTasks,
       concurrency,
       currentDepth,
       upsertDelegatedRun,
       syncDelegatedRunWithResult,
       upsertTask,
       syncTaskWithResult,
+      taskAbortRegistry,
     });
   };
 

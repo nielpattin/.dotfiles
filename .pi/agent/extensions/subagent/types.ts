@@ -147,6 +147,15 @@ export function isResultError(r: SingleResult): boolean {
 	return getFailureCategory(r) !== undefined;
 }
 
+/** Strip heavy fields for UI/progress updates and compact details payloads. */
+export function toLightweightResult(result: SingleResult): SingleResult {
+	return {
+		...result,
+		messages: [],
+		activeTool: undefined,
+	};
+}
+
 function isObjectPart(part: unknown): part is Record<string, unknown> {
 	return typeof part === "object" && part !== null;
 }

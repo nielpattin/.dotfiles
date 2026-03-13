@@ -19,7 +19,6 @@ export function updateAgentDefaultsInFile(
 
   if (updates.skills !== undefined) {
     const normalized = normalizeStringList(updates.skills);
-    delete frontmatter.skill;
     if (!normalized || normalized.length === 0) {
       delete frontmatter.skills;
     } else {
@@ -29,7 +28,6 @@ export function updateAgentDefaultsInFile(
 
   if (updates.extensions !== undefined) {
     const normalized = normalizeStringList(updates.extensions);
-    delete frontmatter.enabledExtensions;
     if (!normalized) {
       delete frontmatter.extensions;
     } else {
@@ -39,7 +37,6 @@ export function updateAgentDefaultsInFile(
 
   if (updates.cwd !== undefined) {
     const normalized = normalizeString(updates.cwd);
-    delete frontmatter.defaultCwd;
     if (!normalized) {
       delete frontmatter.cwd;
     } else {

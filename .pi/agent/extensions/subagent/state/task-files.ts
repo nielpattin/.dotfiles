@@ -117,10 +117,7 @@ export function loadTaskMetadata(metadataFile: string): TaskMetadataRecord | und
     type: TASK_METADATA_RECORD_TYPE,
     version: 3,
     sessionId: parsed.sessionId,
-    taskId:
-      typeof parsed.taskId === "string"
-        ? parsed.taskId
-        : (typeof parsed.toolCallId === "string" ? parsed.toolCallId : undefined),
+    taskId: typeof parsed.taskId === "string" ? parsed.taskId : undefined,
     siblingIndex: typeof parsed.siblingIndex === "number" ? parsed.siblingIndex : undefined,
     agent: parsed.agent,
     summary: parsed.summary,

@@ -1,7 +1,7 @@
 import type { Message } from "@mariozechner/pi-ai";
 import type { SingleResult } from "../types.js";
 
-export function processJsonLine(line: string, result: SingleResult): boolean {
+export function parseStreamEvent(line: string, result: SingleResult): boolean {
   if (!line.trim()) return false;
 
   let event: any;

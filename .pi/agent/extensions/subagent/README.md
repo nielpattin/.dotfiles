@@ -57,12 +57,13 @@ When `background: true` is used:
 
 - `task` keeps the immediate tool-visible queue echo minimal (`Background task session ids: ...`) while the assistant provides the user-facing kickoff message
 - tool result details include `backgroundTasks` + `backgroundTrackingHint`
-- completion is pushed back into the originating session as two messages:
-  - visible UX status line only (completion notice using the child session id, e.g. `✓ Fetching <child-session-id>`; no verbose payload/output block)
-  - hidden control message (`triggerTurn: true`) with a structured JSON payload that instructs the main agent to call `task_result` first, then reply immediately
+- completion is pushed back into the originating session as two message types:
+  - visible UX status lines only (completion notices using child session ids, e.g. `✓ Fetching <child-session-id>`; no verbose payload/output block)
+  - one hidden control message (`triggerTurn: true`) per flush batch with structured JSON that instructs the main agent to do a single immediate `task_result` lookup, then reply immediately
 - completion events are written to a durable per-session inbox (`~/.pi/agent/state/subagent/background-inbox`) and flushed when that session is active
 - task metadata is persisted per delegated run, and full transcript is persisted as a child Pi session file so `/tasks` and `task_result` can recover background completions after reload
-- control payload includes a `task_result` call template using the child session id (`sessionId` + small `waitMs` for race safety); inline completion text is fallback context only, not the primary handoff path
+- control payload includes a `task_result` call template using the child session id (`sessionId` + `waitMs: 0` immediate lookup); inline completion text is fallback context only, not the primary handoff path
+- control policy sets `maxTaskResultCalls: 1` and `autoPoll: false` by default (polling should happen only when user explicitly asks)
 
 ## Validation rules
 
@@ -97,14 +98,13 @@ Use `task_result` to fetch a delegated task by child session id.
 
 - `waitMs` is optional (default `0` for immediate lookup)
 - `pollIntervalMs` is optional and used only when waiting
-- returns task ref + loaded result when available
-- includes `details.handoff` with machine-friendly readiness fields:
+- returns explicit machine-friendly readiness fields on `details`:
   - `state`: `ready` | `running` | `missing` | `empty`
-  - `usableForReply`: whether result is ready for immediate user response
-  - `outputSource`: `output` | `error` | `none`
-  - `outputSnippet`: short inline summary
-- when a task is still running, response text explicitly says it is still running and points to `waitMs`/`/tasks`
-- when complete, response text includes a short output/error snippet when available
+  - `ready` / `usableForReply`
+  - `status`, `waitMs`, `outputSource`, `outputSnippet`, `suggestedAction`
+- non-ready states (`running` / `missing` / `empty`) return lightweight/minimal details only
+- heavy payload (`ref` + full `result`) is returned only when `state = ready`
+- default policy is immediate lookup (`waitMs: 0`) and concise reply, not automatic polling loops
 
 ## Agents panel (`/agents`)
 

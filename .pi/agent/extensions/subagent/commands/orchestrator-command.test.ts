@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  createSessionPromptToggleState,
   registerSubagentPromptCommand,
   SUBAGENT_ORCHESTRATOR_PROMPT_SECTION,
+} from "./orchestrator-command.js";
+import {
+  createSessionPromptToggleState,
   SUBAGENT_ORCHESTRATOR_STATUS_KEY,
-} from "./command.js";
+} from "../state/orchestrator-prompt-state.js";
 
 describe("session prompt toggle state", () => {
   it("toggles enabled state per session id", () => {

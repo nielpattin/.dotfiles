@@ -1,9 +1,9 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { discoverAgents } from "../agents/discover.js";
 import { updateAgentDefaultsInFile } from "../agents/update.js";
-import { discoverExtensionsForTaskConfig } from "./extensions.js";
-import { discoverSkillsForTaskConfig } from "./skills.js";
-import { TaskConfigPanel, type TaskConfigPanelResult } from "./panel.js";
+import { discoverExtensionsForTaskConfig } from "../taskconfig/extensions.js";
+import { discoverSkillsForTaskConfig } from "../taskconfig/skills.js";
+import { TaskConfigPanel, type TaskConfigPanelResult } from "../taskconfig/panel.js";
 
 type AgentsCommandContext = Pick<ExtensionCommandContext, "cwd" | "hasUI" | "ui">;
 
@@ -16,7 +16,7 @@ function splitCommaInput(value: string): string[] {
   ));
 }
 
-export async function openAgentsPanel(
+async function openAgentsPanel(
   ctx: AgentsCommandContext,
 ): Promise<void> {
   if (!ctx.hasUI) {

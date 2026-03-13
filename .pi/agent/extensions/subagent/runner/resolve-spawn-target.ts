@@ -93,7 +93,7 @@ function resolveWindowsPiCliScript(): string | null {
   return null;
 }
 
-export function getPiSpawnTarget(piArgs: string[]): SpawnTarget | null {
+export function resolveSpawnTarget(piArgs: string[]): SpawnTarget | null {
   if (process.platform === "win32") {
     const scriptPath = resolveWindowsPiCliScript();
     if (!scriptPath) return null;

@@ -1,6 +1,6 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { matchesKey, parseKey, truncateToWidth, type TUI } from "@mariozechner/pi-tui";
-import type { TaskDetail, TaskRef, TaskStore } from "../ui/taskstore.js";
+import type { TaskDetail, TaskRef, TaskStore } from "../state/task-store.js";
 import { hotkey, makeChrome, statusLabel } from "./theme.js";
 import { renderTranscriptLines } from "./transcript.js";
 import { formatModelDisplay } from "../render/format.js";
@@ -8,6 +8,7 @@ import { formatModelDisplay } from "../render/format.js";
 const MAX_LIST_ROWS = 10;
 const MAX_DETAIL_TRANSCRIPT_ROWS = 28;
 const DETAIL_AUTO_SCROLL_TOGGLE_KEY = "a";
+const TASK_ABORT_CHORD_WINDOW_MS = 900;
 type Mode = "list" | "detail";
 
 function oneLine(text: string, max = 120): string {
@@ -65,16 +66,19 @@ export class TasksPanel {
   private detailAutoScrollEnabled = true;
   private readonly detailScrollOffsets = new Map<string, number>();
   private readonly detailMaxScrollOffsets = new Map<string, number>();
+  private pendingAbortChordUntil = 0;
 
   constructor(
     private readonly tui: TUI,
     private readonly theme: Theme,
     private readonly store: TaskStore,
+    private readonly abortTaskBySessionId: (sessionId: string) => boolean,
     private readonly done: () => void,
   ) {}
 
   handleInput(data: string): void {
     if (matchesKey(data, "ctrl+c")) {
+      this.resetAbortChord();
       this.done();
       return;
     }
@@ -97,11 +101,23 @@ export class TasksPanel {
   private handleListInput(data: string): void {
     const tasks = this.store.listTasks();
     if (matchesKey(data, "escape")) {
+      this.resetAbortChord();
       this.done();
       return;
     }
 
-    if (tasks.length === 0) return;
+    if (tasks.length === 0) {
+      this.resetAbortChord();
+      return;
+    }
+
+    if (this.matchesAbortChord(data)) {
+      const selected = tasks[this.selectedIndex];
+      if (selected && this.abortTaskBySessionId(selected.sessionId)) {
+        this.refresh();
+      }
+      return;
+    }
 
     if (matchesKey(data, "up")) {
       this.selectedIndex = Math.max(0, this.selectedIndex - 1);
@@ -120,6 +136,7 @@ export class TasksPanel {
     if (matchesKey(data, "return") || matchesKey(data, "enter")) {
       const selected = tasks[this.selectedIndex];
       if (!selected) return;
+      this.resetAbortChord();
       this.selectedSessionId = selected.sessionId;
       this.mode = "detail";
       this.refresh();
@@ -129,6 +146,7 @@ export class TasksPanel {
   private handleDetailInput(data: string): void {
     const tasks = this.store.listTasks();
     if (matchesKey(data, "escape")) {
+      this.resetAbortChord();
       this.mode = "list";
       this.refresh();
       return;
@@ -141,6 +159,13 @@ export class TasksPanel {
 
     const sessionId = this.selectedSessionId;
     const maxScroll = this.detailMaxScrollOffsets.get(sessionId) ?? 0;
+
+    if (this.matchesAbortChord(data)) {
+      if (this.abortTaskBySessionId(sessionId)) {
+        this.refresh();
+      }
+      return;
+    }
 
     if (this.isAutoScrollToggleKey(data)) {
       this.detailAutoScrollEnabled = !this.detailAutoScrollEnabled;
@@ -232,7 +257,7 @@ export class TasksPanel {
     );
     lines.push(
       chrome.row(
-        ` ${hotkey(th, "↑/↓")} ${th.fg("dim", "select")} ${th.fg("borderMuted", "•")} ${hotkey(th, "Enter")} ${th.fg("dim", "open")} ${th.fg("borderMuted", "•")} ${hotkey(th, "Esc")} ${th.fg("dim", "close")}`,
+        ` ${hotkey(th, "↑/↓")} ${th.fg("dim", "select")} ${th.fg("borderMuted", "•")} ${hotkey(th, "Enter")} ${th.fg("dim", "open")} ${th.fg("borderMuted", "•")} ${hotkey(th, "DD")} ${th.fg("dim", "abort task")} ${th.fg("borderMuted", "•")} ${hotkey(th, "Esc")} ${th.fg("dim", "close")}`,
       ),
     );
     lines.push(chrome.strongDivider());
@@ -360,7 +385,7 @@ export class TasksPanel {
       : "Auto-scroll OFF • ↑/↓/PgUp/PgDn/Home/End scroll";
     lines.push(
       chrome.row(
-        ` ${th.fg("dim", "←/→")} switch tasks • ${hotkey(th, DETAIL_AUTO_SCROLL_TOGGLE_KEY.toUpperCase())} toggle • ${hotkey(th, "Esc")} back • ${autoScrollText} • ${transcriptLines.length === 0 ? "0/0" : `${start + 1}-${Math.max(start + 1, end)}/${transcriptLines.length}`}`,
+        ` ${th.fg("dim", "←/→")} switch tasks • ${hotkey(th, "DD")} abort task • ${hotkey(th, DETAIL_AUTO_SCROLL_TOGGLE_KEY.toUpperCase())} toggle • ${hotkey(th, "Esc")} back • ${autoScrollText} • ${transcriptLines.length === 0 ? "0/0" : `${start + 1}-${Math.max(start + 1, end)}/${transcriptLines.length}`}`,
       ),
     );
 
@@ -403,6 +428,22 @@ export class TasksPanel {
 
   private isEndKey(data: string): boolean {
     return matchesKey(data, "end") || matchesKey(data, "ctrl+e");
+  }
+
+  private matchesAbortChord(data: string): boolean {
+    if (!matchesKey(data, "d")) {
+      this.resetAbortChord();
+      return false;
+    }
+
+    const now = Date.now();
+    const matched = this.pendingAbortChordUntil > now;
+    this.pendingAbortChordUntil = matched ? 0 : now + TASK_ABORT_CHORD_WINDOW_MS;
+    return matched;
+  }
+
+  private resetAbortChord(): void {
+    this.pendingAbortChordUntil = 0;
   }
 
   private ensureListSelectionVisible(total: number): void {

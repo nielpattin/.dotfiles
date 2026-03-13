@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import type { SubagentDetails, SingleResult, FailureCategory } from "../types.js";
+import type { SingleResult, FailureCategory } from "../types.js";
 import { TASK_ENV_NAMES } from "../constants.js";
-import { processJsonLine } from "./stream.js";
-import type { SpawnTarget } from "./spawntarget.js";
+import { parseStreamEvent } from "./parse-stream-event.js";
+import type { SpawnTarget } from "./resolve-spawn-target.js";
 
 const SIGKILL_TIMEOUT_MS = 5000;
 const ABORT_SIGNALS = new Set(["SIGINT", "SIGTERM", "SIGKILL"]);
@@ -19,8 +18,6 @@ const SIGNAL_EXIT_CODES: Record<string, number> = {
   SIGALRM: 141,
   SIGTERM: 143,
 };
-
-export type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
 export function setFailure(
   result: SingleResult,
@@ -113,7 +110,7 @@ export async function runChildProcess(
     };
 
     const flushLine = (line: string) => {
-      if (processJsonLine(line, result)) emitUpdate();
+      if (parseStreamEvent(line, result)) emitUpdate();
     };
 
     proc.stdout.on("data", (chunk: Buffer) => {
