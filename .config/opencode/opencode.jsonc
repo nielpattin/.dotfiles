@@ -7,7 +7,7 @@
 	"plugin": [
 		// "./plugins/opencode-usage-plugin",
 		// "./plugins/exsolutor",
-		"./plugins/opencode-session-manager",
+		// "./plugins/opencode-session-manager",
 		// "./plugins/opencode-notifier",
 		// "file:///c:/Users/niel/.config/opencode/hooks/openslimedit/src/index.ts", 
 		// "file:///c:/Users/niel/.config/opencode/plugins/polaris-opencode/src/index.ts",
@@ -153,11 +153,11 @@
 	//   "chutes"
 	// ],
 	"disabled_providers": [
-		"zai-coding-plan",
-		"io-intelligence",
-		// "openai",
-		"github-copilot-enterprise",
-		"github-models",
-		"nvidia"
-	],
+    "zai-coding-plan",
+    "io-intelligence",
+    "github-copilot-enterprise",
+    "github-models",
+    "nvidia",
+    "modal"
+  ],
 }
