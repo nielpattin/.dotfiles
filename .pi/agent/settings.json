@@ -76,5 +76,7 @@
   "pi-codex-fast": {
     "enabled": true
   },
-  "enableSkillCommands": false
+  "enableSkillCommands": false,
+  "steeringMode": "all",
+  "followUpMode": "all"
 }
