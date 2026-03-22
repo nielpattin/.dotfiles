@@ -5,4 +5,4 @@ activate_aggressive = false
 mitmproxy = "latest"
 python = "latest"
 uv = "latest"
-opencode = "1.2.24"
+opencode = "1.2.27"
