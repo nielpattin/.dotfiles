@@ -4,16 +4,7 @@
       "baseUrl": "https://mcp.linear.app/mcp",
       "auth": "oauth"
     },
-    "brave-search": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@brave/brave-search-mcp-server"
-      ],
-      "env": {
-        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
-      }
-    },
+ 
     "tavily": {
       "baseUrl": "https://mcp.tavily.com/mcp",
       "headers": {
