@@ -289,12 +289,12 @@ export class SummaryCardsComponent {
 			lines.push(
 				this.theme.fg(
 					"muted",
-					`... ${hiddenCount} more task${hiddenCount === 1 ? "" : "s"} (${keyHint("expandTools", "to expand")})`,
+					`... ${hiddenCount} more task${hiddenCount === 1 ? "" : "s"} (${keyHint("app.tools.expand", "to expand")})`,
 				),
 			);
 		} else if (!this.expanded && this.showExpandHint) {
 			lines.push("");
-			lines.push(this.theme.fg("muted", `(${keyHint("expandTools", "to expand")})`));
+			lines.push(this.theme.fg("muted", `(${keyHint("app.tools.expand", "to expand")})`));
 		}
 
 		this.cachedWidth = width;
