@@ -62,9 +62,9 @@ function dot-pi {
     try {
         $env:GIT_DIR = "$HOME\.dotfiles"
         $env:GIT_WORK_TREE = "$HOME"
-        $env:GIT_OPTIONAL_LOCKS = "0"
+        # $env:GIT_OPTIONAL_LOCKS = "0"
         Set-Location $HOME
-        & pi @PiArgs
+        & pi --no-skills @PiArgs
     }
     finally {
         if ($null -eq $oldGitDir) {
@@ -237,7 +237,7 @@ $env:OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
 Set-Alias -Name oc -Value opencode.cmd
 
 # po = local pi build (repo dist)
-function p {
+function po {
     & node "$HOME/repo/pi-mono/packages/coding-agent/dist/cli.js" @args
 }
 
@@ -266,6 +266,80 @@ function oc-dev {
 function bash {
      & "C:\Program Files\Git\bin\bash.exe" @args
 }
+
+function Start-AgentBrowserChrome {
+    [CmdletBinding()]
+    param(
+        [int]$Port = 9222,
+        [string]$ProfileDir = "$env:LOCALAPPDATA\agent-browser-profile",
+        [switch]$ForceRestart
+    )
+
+    $chromeCandidates = @(
+        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+        "$env:ProgramFiles(x86)\Google\Chrome\Application\chrome.exe"
+    ) | Where-Object { $_ -and (Test-Path $_) }
+
+    $chrome = $chromeCandidates | Select-Object -First 1
+    if (-not $chrome) {
+        throw "Chrome not found in Program Files."
+    }
+
+    $endpoint = "http://127.0.0.1:$Port/json/version"
+    $existing = $null
+
+    try {
+        $existing = Invoke-RestMethod -Uri $endpoint -TimeoutSec 2
+    }
+    catch {
+    }
+
+    if ($ForceRestart -or -not $existing) {
+        Stop-Process -Name chrome -Force -ErrorAction SilentlyContinue
+
+        if (-not (Test-Path $ProfileDir)) {
+            New-Item -ItemType Directory -Path $ProfileDir -Force | Out-Null
+        }
+
+        Start-Process -FilePath $chrome -ArgumentList @(
+            "--remote-debugging-port=$Port",
+            "--remote-debugging-address=127.0.0.1",
+            "--user-data-dir=$ProfileDir",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "about:blank"
+        ) | Out-Null
+
+        $deadline = (Get-Date).AddSeconds(15)
+        do {
+            Start-Sleep -Milliseconds 500
+            try {
+                $existing = Invoke-RestMethod -Uri $endpoint -TimeoutSec 2
+            }
+            catch {
+            }
+        } while (-not $existing -and (Get-Date) -lt $deadline)
+    }
+
+    if (-not $existing) {
+        throw "Chrome CDP did not come up at http://127.0.0.1:$Port"
+    }
+
+    $result = [PSCustomObject]@{
+        BrowserUrl           = "http://127.0.0.1:$Port"
+        WebSocketDebuggerUrl = $existing.webSocketDebuggerUrl
+        ProfileDir           = $ProfileDir
+        Browser              = $existing.Browser
+    }
+
+    Write-Host "Agent Browser CDP ready" -ForegroundColor Green
+    Write-Host "Browser URL: $($result.BrowserUrl)" -ForegroundColor Cyan
+    Write-Host "WebSocket:   $($result.WebSocketDebuggerUrl)" -ForegroundColor Cyan
+    Write-Host "Profile:     $($result.ProfileDir)" -ForegroundColor DarkGray
+
+    return $result
+}
+Set-Alias -Name abc -Value Start-AgentBrowserChrome
 
 # Proxy Utilities
 # function Set-OcProxy {
