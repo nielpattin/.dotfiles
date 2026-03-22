@@ -38,6 +38,7 @@
     "-extensions\\figma-start.ts",
     "-extensions\\prompt-stash.ts",
     "+extensions\\multicodex.ts",
+    "+extensions\\fzf\\index.ts",
     "-extensions\\code-ast\\index.ts",
     "-extensions\\command-palette\\index.ts",
     "-extensions\\image-preview\\index.ts",
