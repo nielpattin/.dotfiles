@@ -52,10 +52,10 @@
     "+extensions\\notification\\index.ts",
     "-extensions\\subagent\\index.ts",
     "-extensions\\working-vibes\\index.ts",
-    "-extensions\\tools\\index.ts",
     "+extensions\\files.ts",
     "-extensions\\tab-status\\index.ts",
-    "+extensions\\skills\\index.ts"
+    "+extensions\\skills\\index.ts",
+    "+extensions\\tools\\index.ts"
   ],
   "skills": [
     "-..\\..\\.agents\\skills\\userinterface-wiki\\SKILL.md",

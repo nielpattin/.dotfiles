@@ -22,7 +22,7 @@ export default function toolsExtension(pi: ExtensionAPI) {
 	// Track enabled tools
 	let enabledTools: Set<string> = new Set();
 	let allTools: ToolInfo[] = [];
-	const defaultBuiltInTools = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+	const defaultBuiltInTools = ["read", "bash", "edit", "write"];
 
 	function withDefaultBuiltins(tools: string[], allToolNames: string[]): string[] {
 		const next = new Set(tools.filter((tool) => allToolNames.includes(tool)));
