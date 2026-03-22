@@ -15,7 +15,6 @@
         "-index.ts"
       ]
     },
-    "git:https://github.com/calesennett/pi-codex-fast",
     {
       "source": "npm:pi-token-burden",
       "extensions": [
@@ -23,9 +22,11 @@
       ]
     },
     "npm:pi-codex-web-search",
-    "git:https://github.com/badlogic/pi-diff-review",
     "npm:pi-bash-live-view",
-    "npm:pi-promptsmith"
+    "npm:pi-promptsmith",
+    "npm:pi-docparser",
+    "git:https://github.com/calesennett/pi-codex-fast",
+    "git:https://github.com/badlogic/pi-diff-review"
   ],
   "extensions": [
     "-extensions\\theme-cycle\\index.ts",
@@ -115,5 +116,8 @@
   "prompts": [
     "+prompts\\dot-commit.md"
   ],
-  "lazySkills": true
+  "lazySkills": true,
+  "npmCommand": [
+    "pnpm"
+  ]
 }
