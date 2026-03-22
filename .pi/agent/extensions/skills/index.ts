@@ -13,6 +13,7 @@
  */
 
 import type {
+  AgentToolResult,
   ExtensionAPI,
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
@@ -34,6 +35,17 @@ type RuntimeSettings = {
 
 type ResolvedSkill =
   | { kind: "found"; skill: Skill; usedShortnameFallback: boolean }
+  | { kind: "ambiguous"; requestedName: string; options: string[] }
+  | { kind: "not_found"; requestedName: string };
+
+type ReadSkillToolDetails =
+  | {
+      kind: "ok";
+      requestedName: string;
+      resolvedQualifiedName: string;
+      usedShortnameFallback: boolean;
+      filePath: string;
+    }
   | { kind: "ambiguous"; requestedName: string; options: string[] }
   | { kind: "not_found"; requestedName: string };
 
@@ -205,6 +217,12 @@ export default function qualifiedSkillsExtension(pi: ExtensionAPI) {
     const resolved = resolveSkill(requestedName);
 
     if (resolved.kind === "ambiguous") {
+      const details: ReadSkillToolDetails = {
+        kind: "ambiguous",
+        requestedName: resolved.requestedName,
+        options: resolved.options,
+      };
+
       return {
         ok: false as const,
         error: {
@@ -216,13 +234,18 @@ export default function qualifiedSkillsExtension(pi: ExtensionAPI) {
                 `Use one of: ${resolved.options.join(", ")}`,
             },
           ],
-          details: resolved,
+          details,
           isError: true,
         },
       };
     }
 
     if (resolved.kind === "not_found") {
+      const details: ReadSkillToolDetails = {
+        kind: "not_found",
+        requestedName: resolved.requestedName,
+      };
+
       return {
         ok: false as const,
         error: {
@@ -232,7 +255,7 @@ export default function qualifiedSkillsExtension(pi: ExtensionAPI) {
               text: `Skill not found: ${resolved.requestedName}`,
             },
           ],
-          details: resolved,
+          details,
           isError: true,
         },
       };
@@ -280,10 +303,12 @@ export default function qualifiedSkillsExtension(pi: ExtensionAPI) {
 
     // Fallback to shortname
     const matchingSkills = skills.filter((s) => s.name === requestedName);
-    if (matchingSkills.length === 1) {
+    const [matchingSkill] = matchingSkills;
+
+    if (matchingSkills.length === 1 && matchingSkill) {
       return {
         kind: "found",
-        skill: matchingSkills[0],
+        skill: matchingSkill,
         usedShortnameFallback: true,
       };
     }
@@ -361,7 +386,13 @@ export default function qualifiedSkillsExtension(pi: ExtensionAPI) {
       parameters: Type.Object({
         name: Type.String({ description: "Skill qualified name or shortname" }),
       }),
-      async execute(_toolCallId, params) {
+      async execute(
+        _toolCallId,
+        params,
+        _signal,
+        _onUpdate,
+        _ctx,
+      ): Promise<AgentToolResult<ReadSkillToolDetails>> {
         const result = readSkillResult(params.name);
 
         if (!result.ok) {
@@ -371,6 +402,7 @@ export default function qualifiedSkillsExtension(pi: ExtensionAPI) {
         return {
           content: [{ type: "text", text: result.value.text }],
           details: {
+            kind: "ok",
             requestedName: params.name,
             resolvedQualifiedName: result.value.skill.qualifiedName,
             usedShortnameFallback: result.value.usedShortnameFallback,
@@ -410,8 +442,15 @@ export default function qualifiedSkillsExtension(pi: ExtensionAPI) {
         }
 
         const [requestedName, ...rest] = trimmed.split(/\s+/);
-        const extraArgs = rest.length > 0 ? rest.join(" ") : undefined;
+        if (!requestedName) {
+          cmdCtx.ui.notify(
+            "Usage: /skill <qualified-name|shortname> [extra instructions]",
+            "warning",
+          );
+          return;
+        }
 
+        const extraArgs = rest.length > 0 ? rest.join(" ") : undefined;
         const resolved = resolveSkill(requestedName);
         if (resolved.kind === "ambiguous") {
           cmdCtx.ui.notify(

@@ -1,7 +1,7 @@
 ---
 name: "scout"
 description: "Recon subagent for discovery, context gathering, and impact mapping"
-model: "openai-codex/gpt-5.3-codex"
+model: "openai-codex/gpt-5.4-mini"
 thinking: "medium"
 tools: "read, grep, find, ls, bash"
 ---

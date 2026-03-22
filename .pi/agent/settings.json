@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.57.1",
+  "lastChangelogVersion": "0.61.1",
   "hideThinkingBlock": false,
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.4",
@@ -9,42 +9,74 @@
   "transport": "sse",
   "packages": [
     "npm:pi-mcporter",
-    "npm:pi-rtk-noemoji",
+    {
+      "source": "npm:pi-rtk-noemoji",
+      "extensions": [
+        "-index.ts"
+      ]
+    },
     "git:https://github.com/calesennett/pi-codex-fast",
-    "npm:pi-token-burden"
+    {
+      "source": "npm:pi-token-burden",
+      "extensions": [
+        "-src\\index.ts"
+      ]
+    },
+    "npm:pi-codex-web-search",
+    "git:https://github.com/badlogic/pi-diff-review",
+    "npm:pi-bash-live-view",
+    "npm:pi-promptsmith"
   ],
   "extensions": [
     "-extensions\\theme-cycle\\index.ts",
     "-extensions\\handoff\\index.ts",
-    "+extensions\\context-scope.ts",
-    "-extensions\\command-palette\\index.ts",
     "-extensions\\welcome\\index.ts",
-    "+extensions\\you-are-right-killer.ts",
-    "+extensions\\working-vibes\\index.ts",
     "-extensions\\session-query\\index.ts",
-    "+extensions\\smart-sessions\\index.ts",
     "-extensions\\btw\\index.ts",
     "-extensions\\draw\\index.ts",
     "-extensions\\figma-start.ts",
-    "+extensions\\image-preview\\index.ts",
-    "+extensions\\powerline-footer\\index.ts",
     "-extensions\\prompt-stash.ts",
-    "+extensions\\redraws.ts",
-    "+extensions\\usage-extension\\index.ts",
-    "+extensions\\multicodex.ts"
+    "+extensions\\multicodex.ts",
+    "-extensions\\code-ast\\index.ts",
+    "-extensions\\command-palette\\index.ts",
+    "-extensions\\image-preview\\index.ts",
+    "-extensions\\redraws.ts",
+    "-extensions\\powerline-footer\\index.ts",
+    "+extensions\\smart-sessions\\index.ts",
+    "-extensions\\usage-extension\\index.ts",
+    "-extensions\\you-are-right-killer.ts",
+    "-extensions\\agents-discovery\\index.ts",
+    "-extensions\\context-scope.ts",
+    "-extensions\\diff.ts",
+    "+extensions\\notification\\index.ts",
+    "-extensions\\subagent\\index.ts",
+    "-extensions\\working-vibes\\index.ts",
+    "-extensions\\tools\\index.ts",
+    "+extensions\\files.ts",
+    "-extensions\\tab-status\\index.ts",
+    "+extensions\\skills\\index.ts"
   ],
   "skills": [
-    "+skills\\drawio-diagrams-enhanced\\SKILL.md",
-    "-skills\\creating-pi-extensions\\SKILL.md",
-    "-skills\\prd\\SKILL.md",
-    "-skills\\prd-task\\SKILL.md",
-    "+skills\\resolve-conflicts\\SKILL.md",
-    "-skills\\roadmap\\SKILL.md",
-    "-skills\\tracer-bullet\\SKILL.md",
+    "-..\\..\\.agents\\skills\\userinterface-wiki\\SKILL.md",
+    "-..\\..\\.agents\\skills\\agent-browser\\SKILL.md",
+    "-skills\\writing-git-commits\\SKILL.md",
+    "-skills\\userinterface-wiki\\SKILL.md",
     "-skills\\update-pi\\SKILL.md",
-    "-skills\\visit-webpage\\SKILL.md",
-    "-skills\\web-search\\SKILL.md",
-    "-skills\\session-query\\SKILL.md"
+    "-skills\\uncodixfy\\SKILL.md",
+    "-skills\\triage-expert\\SKILL.md",
+    "-skills\\tracer-bullet\\SKILL.md",
+    "-skills\\session-query\\SKILL.md",
+    "-skills\\roadmap\\SKILL.md",
+    "-skills\\resolve-conflicts\\SKILL.md",
+    "-skills\\prd-task\\SKILL.md",
+    "-skills\\mermaid-diagrams\\SKILL.md",
+    "-skills\\index-knowledge\\SKILL.md",
+    "-skills\\frontend-design\\SKILL.md",
+    "-skills\\figma-use\\SKILL.md",
+    "-skills\\drawio-diagrams-enhanced\\SKILL.md",
+    "-skills\\creating-pi-extensions\\SKILL.md",
+    "-skills\\agent-browser\\SKILL.md",
+    "-skills\\prd\\SKILL.md"
   ],
   "themes": [
     "-themes\\cyberpunk.json",
@@ -71,12 +103,17 @@
   "treeFilterMode": "user-only",
   "enabledModels": [
     "openai-codex/gpt-5.3-codex",
-    "openai-codex/gpt-5.4"
+    "openai-codex/gpt-5.4",
+    "github-copilot/gemini-3.1-pro-preview"
   ],
   "pi-codex-fast": {
-    "enabled": true
+    "enabled": false
   },
   "enableSkillCommands": false,
   "steeringMode": "all",
-  "followUpMode": "all"
+  "followUpMode": "all",
+  "prompts": [
+    "+prompts\\dot-commit.md"
+  ],
+  "lazySkills": true
 }

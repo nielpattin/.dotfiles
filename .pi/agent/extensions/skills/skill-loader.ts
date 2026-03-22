@@ -81,7 +81,8 @@ function parseFrontmatter(content: string): {
     return { frontmatter: {}, body: content };
   }
 
-  const [, yamlBlock, body] = match;
+  const yamlBlock = match[1] ?? "";
+  const body = match[2] ?? "";
   const frontmatter: SkillFrontmatter = {};
 
   // Simple YAML parsing for key: value pairs

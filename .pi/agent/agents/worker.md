@@ -1,7 +1,7 @@
 ---
 name: "worker"
 description: "Implementation-focused subagent for scoped coding tasks"
-model: "openai-codex/gpt-5.3-codex"
+model: "openai-codex/gpt-5.4-mini"
 thinking: "medium"
 tools: "read, write, grep, find, ls, bash"
 ---

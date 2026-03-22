@@ -731,7 +731,7 @@ class MultiCodexUsageOverlay {
 	private rows: UsagePanelRowState[];
 	private selectedIndex = 0;
 	private busyEmail?: string;
-	private busyTarget?: "pi" | "codex";
+	private busyTarget?: "pi" | "codex" | "both" | "delete";
 	private disposed = false;
 	private refreshRequestId = 0;
 	private piActiveEmail?: string;
@@ -748,6 +748,7 @@ class MultiCodexUsageOverlay {
 		private readonly loadUsage: (account: StoredAccount, force?: boolean) => Promise<CodexUsageSnapshot | undefined>,
 		private readonly syncPiAccount: (email: string) => Promise<boolean>,
 		private readonly syncCodexAccount: (email: string) => Promise<boolean>,
+		private readonly deleteStoredAccount: (email: string) => boolean,
 		private readonly done: () => void,
 	) {
 		this.rows = accounts.map((account) => ({
@@ -789,6 +790,14 @@ class MultiCodexUsageOverlay {
 		}
 		if (matchesKey(data, "s")) {
 			void this.activateSelectedCodex();
+			return;
+		}
+		if (matchesKey(data, "b")) {
+			void this.activateSelectedBoth();
+			return;
+		}
+		if (matchesKey(data, "d")) {
+			this.deleteSelectedAccount();
 		}
 	}
 
@@ -804,7 +813,7 @@ class MultiCodexUsageOverlay {
 
 		lines.push(th.fg("border", `╭${"─".repeat(innerW)}╮`));
 		lines.push(row(` ${th.fg("accent", th.bold("MultiCodex Usage"))}`));
-		lines.push(row(` ${th.fg("dim", "Enter sync Pi • s sync Codex • r refresh • Esc close")}`));
+		lines.push(row(` ${th.fg("dim", "Enter Pi • s Pi->Codex • b both • d delete-in-Pi • r refresh • Esc close")}`));
 		lines.push(row());
 
 		for (let i = 0; i < this.rows.length; i += 1) {
@@ -820,6 +829,8 @@ class MultiCodexUsageOverlay {
 				this.isCodexAuthSynced(item.account.email) ? "codex-synced" : null,
 				this.busyEmail === item.account.email && this.busyTarget === "pi" ? "syncing-pi" : null,
 				this.busyEmail === item.account.email && this.busyTarget === "codex" ? "syncing-codex" : null,
+				this.busyEmail === item.account.email && this.busyTarget === "both" ? "syncing-both" : null,
+				this.busyEmail === item.account.email && this.busyTarget === "delete" ? "deleting" : null,
 				isUsageStale(item.usage) ? "stale" : null,
 			]);
 			const email = isSelected ? th.fg("accent", item.account.email) : item.account.email;
@@ -901,6 +912,56 @@ class MultiCodexUsageOverlay {
 		}
 		this.busyEmail = undefined;
 		this.busyTarget = undefined;
+		this.refresh();
+	}
+
+	private async activateSelectedBoth(): Promise<void> {
+		const selected = this.rows[this.selectedIndex];
+		if (!selected || this.busyEmail) return;
+		this.busyEmail = selected.account.email;
+		this.busyTarget = "both";
+		this.refresh();
+		const piOk = await this.syncPiAccount(selected.account.email);
+		if (this.disposed) return;
+		if (piOk) {
+			this.piActiveEmail = selected.account.email;
+		}
+
+		const codexOk = piOk ? await this.syncCodexAccount(selected.account.email) : false;
+		if (this.disposed) return;
+		if (codexOk) {
+			this.codexActiveEmail = selected.account.email;
+		}
+		this.busyEmail = undefined;
+		this.busyTarget = undefined;
+		this.refresh();
+	}
+
+	private deleteSelectedAccount(): void {
+		const selected = this.rows[this.selectedIndex];
+		if (!selected || this.busyEmail) return;
+		this.busyEmail = selected.account.email;
+		this.busyTarget = "delete";
+		this.refresh();
+
+		const ok = this.deleteStoredAccount(selected.account.email);
+		if (this.disposed) return;
+		this.busyEmail = undefined;
+		this.busyTarget = undefined;
+		if (!ok) {
+			this.refresh();
+			return;
+		}
+
+		this.rows.splice(this.selectedIndex, 1);
+		if (this.piActiveEmail === selected.account.email) this.piActiveEmail = undefined;
+		if (this.codexActiveEmail === selected.account.email) this.codexActiveEmail = undefined;
+		if (this.rows.length === 0) {
+			this.done();
+			return;
+		}
+
+		this.selectedIndex = Math.min(this.selectedIndex, this.rows.length - 1);
 		this.refresh();
 	}
 }
@@ -987,6 +1048,15 @@ class ManualAccountManager {
 		}
 		if (setActive) this.data.activeEmail = email;
 		this.save();
+	}
+
+	removeAccount(email: string): boolean {
+		const index = this.data.accounts.findIndex((account) => account.email === email);
+		if (index < 0) return false;
+		this.data.accounts.splice(index, 1);
+		this.usageCache.delete(email);
+		this.save();
+		return true;
 	}
 
 	private toOAuthAuthEntry(account: StoredAccount): OAuthAuthEntry {
@@ -1353,6 +1423,14 @@ export default function multicodexExtension(pi: ExtensionAPI) {
 					(account, force) => resolveUsage(account, { force }),
 					(email) => switchActiveAccount(email, ctx),
 					(email) => switchCodexAccount(email, ctx),
+					(email) => {
+						const removed = manager.removeAccount(email);
+						ctx.ui.notify(
+							removed ? `Removed ${email} from Pi MultiCodex storage` : `Could not remove ${email}`,
+							removed ? "info" : "error",
+						);
+						return removed;
+					},
 					() => done(undefined),
 				);
 				queueMicrotask(() => overlay.start());
