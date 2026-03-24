@@ -6,17 +6,17 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@mariozechner/pi-agent-core": "^0.61.1",
-    "@mariozechner/pi-ai": "^0.61.1",
-    "@mariozechner/pi-coding-agent": "^0.61.1",
-    "@mariozechner/pi-tui": "^0.61.1",
+    "@mariozechner/pi-agent-core": "^0.62.0",
+    "@mariozechner/pi-ai": "^0.62.0",
+    "@mariozechner/pi-coding-agent": "^0.62.0",
+    "@mariozechner/pi-tui": "^0.62.0",
     "@sinclair/typebox": "^0.34.48",
-    "@zenobius/pi-extension-config": "^0.0.2",
+    "@zenobius/pi-extension-config": "^0.2.0",
     "fzf": "^0.5.2"
   },
   "devDependencies": {
-    "@types/node": "^25.3.5",
-    "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.1"
   }
 }

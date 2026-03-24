@@ -1,172 +1,65 @@
 {
   "providers": {
-    "vivgrid": {
-      "baseUrl": "https://api.vivgrid.com/v1",
+ 
+  
+    "proxx": {
+      "baseUrl": "http://127.0.0.1:8789/v1",
       "api": "openai-completions",
-      "apiKey": "VIVGRID_API_KEY",
+      "apiKey": "PROXX_API_KEY",
       "authHeader": true,
+      "compat": {
+        "supportsDeveloperRole": false
+      },
       "models": [
         {
-          "id": "Kimi-K2.5",
-          "name": "Kimi-K2.5",
+          "id": "glm-5",
+          "name": "GLM-5 (Ollama Cloud via proxx)",
           "reasoning": true,
           "input": [
             "text"
           ],
+          "contextWindow": 198000,
+          "maxTokens": 131072,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "minimax-m2.7",
+          "name": "MiniMax M2.7 (Ollama Cloud via proxx)",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 200000,
+          "maxTokens": 131072,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsReasoningEffort": false
+          }
+        },
+        {
+          "id": "kimi-k2.5",
+          "name": "Kimi K2.5 (Ollama Cloud via proxx)",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 256000,
-          "maxTokens": 256000,
+          "maxTokens": 262144,
           "cost": {
-            "input": 1.25,
-            "output": 10,
-            "cacheRead": 0.125,
-            "cacheWrite": 0
-          },
-          "compat": {
-            "supportsDeveloperRole": false,
-            "supportsReasoningEffort": false,
-            "supportsUsageInStreaming": false,
-            "supportsStore": false,
-            "maxTokensField": "max_tokens",
-            "supportsStrictMode": false
-          }
-        }
-      ]
-    },
-    "llm-api-key-proxy": {
-      "baseUrl": "http://127.0.0.1:8989/v1",
-      "api": "openai-completions",
-      "apiKey": "PROXY_API_KEY",
-      "authHeader": true,
-      "models": [
-        {
-          "id": "gemini_cli/gemini-3.1-pro-preview",
-          "name": "Gemini 3.1 Pro Preview (CLI)",
-          "reasoning": true,
-          "input": [
-            "text",
-            "image"
-          ],
-          "contextWindow": 1048576,
-          "maxTokens": 65536,
-          "cost": {
-            "input": 2,
-            "output": 12,
-            "cacheRead": 0.2,
-            "cacheWrite": 0
-          },
-          "compat": {
-            "supportsDeveloperRole": false
-          }
-        },
-        {
-          "id": "gemini_cli/gemini-3-flash-preview",
-          "name": "Gemini 3 Flash Preview (CLI)",
-          "reasoning": true,
-          "input": [
-            "text",
-            "image"
-          ],
-          "contextWindow": 1048576,
-          "maxTokens": 65536,
-          "cost": {
-            "input": 0.5,
-            "output": 3,
-            "cacheRead": 0.05,
-            "cacheWrite": 0
-          },
-          "compat": {
-            "supportsDeveloperRole": false
-          }
-        }
-      ]
-    },
-    "openai-lb": {
-      "baseUrl": "http://127.0.0.1:2455/v1",
-      "apiKey": "CODEX_LB_API_KEY",
-      "api": "openai-completions",
-      "authHeader": true,
-      "models": [
-        {
-          "id": "gpt-5.1-codex-max",
-          "name": "GPT-5.1 Codex Max",
-          "reasoning": true,
-          "input": ["text", "image"],
-          "contextWindow": 400000,
-          "maxTokens": 128000,
-          "cost": {
-            "input": 1.25,
-            "output": 10,
-            "cacheRead": 0.125,
-            "cacheWrite": 0
-          }
-        },
-        {
-          "id": "gpt-5.1-codex-mini",
-          "name": "GPT-5.1 Codex mini",
-          "reasoning": true,
-          "input": ["text", "image"],
-          "contextWindow": 400000,
-          "maxTokens": 128000,
-          "cost": {
-            "input": 0.25,
-            "output": 2,
-            "cacheRead": 0.025,
-            "cacheWrite": 0
-          }
-        },
-        {
-          "id": "gpt-5.2",
-          "name": "GPT-5.2",
-          "reasoning": true,
-          "input": ["text", "image"],
-          "contextWindow": 400000,
-          "maxTokens": 128000,
-          "cost": {
-            "input": 1.75,
-            "output": 14,
-            "cacheRead": 0.175,
-            "cacheWrite": 0
-          }
-        },
-        {
-          "id": "gpt-5.2-codex",
-          "name": "GPT-5.2 Codex",
-          "reasoning": true,
-          "input": ["text", "image"],
-          "contextWindow": 400000,
-          "maxTokens": 128000,
-          "cost": {
-            "input": 1.75,
-            "output": 14,
-            "cacheRead": 0.175,
-            "cacheWrite": 0
-          }
-        },
-        {
-          "id": "gpt-5.3-codex",
-          "name": "GPT-5.3 Codex",
-          "reasoning": true,
-          "input": ["text", "image"],
-          "contextWindow": 400000,
-          "maxTokens": 128000,
-          "cost": {
-            "input": 1.75,
-            "output": 14,
-            "cacheRead": 0.175,
-            "cacheWrite": 0
-          }
-        },
-        {
-          "id": "gpt-5.4",
-          "name": "GPT-5.4",
-          "reasoning": true,
-          "input": ["text", "image"],
-          "contextWindow": 272000,
-          "maxTokens": 128000,
-          "cost": {
-            "input": 2.5,
-            "output": 15,
-            "cacheRead": 0.25,
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
             "cacheWrite": 0
           }
         }

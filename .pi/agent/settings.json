@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.61.1",
+  "lastChangelogVersion": "0.62.0",
   "hideThinkingBlock": false,
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.4",
@@ -21,12 +21,27 @@
         "-src\\index.ts"
       ]
     },
-    "npm:pi-codex-web-search",
-    "npm:pi-bash-live-view",
+    {
+      "source": "npm:pi-codex-web-search",
+      "extensions": [
+        "-src\\index.ts"
+      ]
+    },
+    {
+      "source": "npm:pi-bash-live-view",
+      "extensions": [
+        "+index.ts"
+      ]
+    },
     "npm:pi-promptsmith",
     "npm:pi-docparser",
-    "git:https://github.com/calesennett/pi-codex-fast",
-    "git:https://github.com/badlogic/pi-diff-review"
+    {
+      "source": "git:https://github.com/badlogic/pi-diff-review",
+      "extensions": [
+        "+src\\index.ts"
+      ]
+    },
+    "https://github.com/denismrvoljak/pi-tutor"
   ],
   "extensions": [
     "-extensions\\theme-cycle\\index.ts",
@@ -37,7 +52,6 @@
     "-extensions\\draw\\index.ts",
     "-extensions\\figma-start.ts",
     "-extensions\\prompt-stash.ts",
-    "+extensions\\multicodex.ts",
     "+extensions\\fzf\\index.ts",
     "-extensions\\code-ast\\index.ts",
     "-extensions\\command-palette\\index.ts",
@@ -53,9 +67,11 @@
     "+extensions\\notification\\index.ts",
     "-extensions\\subagent\\index.ts",
     "-extensions\\working-vibes\\index.ts",
-    "+extensions\\files.ts",
     "-extensions\\tab-status\\index.ts",
     "+extensions\\skills\\index.ts",
+    "-extensions\\multicodex.ts",
+    "-extensions\\files.ts",
+    "+extensions\\tps.ts",
     "+extensions\\tools\\index.ts"
   ],
   "skills": [
@@ -106,7 +122,10 @@
   "enabledModels": [
     "openai-codex/gpt-5.3-codex",
     "openai-codex/gpt-5.4",
-    "github-copilot/gemini-3.1-pro-preview"
+    "github-copilot/gemini-3.1-pro-preview",
+    "proxx/kimi-k2.5",
+    "proxx/minimax-m2.7",
+    "proxx/glm-5"
   ],
   "pi-codex-fast": {
     "enabled": false
@@ -120,5 +139,8 @@
   "lazySkills": true,
   "npmCommand": [
     "pnpm"
-  ]
+  ],
+  "compaction": {
+    "enabled": false
+  }
 }

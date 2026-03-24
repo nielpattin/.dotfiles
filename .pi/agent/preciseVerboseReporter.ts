@@ -1,4 +1,4 @@
-import { VerboseReporter } from "vitest/reporters";
+import { VerboseReporter } from "vitest/node";
 import colors from "yoctocolors";
 
 export class PreciseVerboseReporter extends VerboseReporter {

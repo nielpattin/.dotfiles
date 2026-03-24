@@ -151,3 +151,7 @@ auth.json
 multicodex.json
 *.jsonl
 git
+
+
+pi-tutor
+models.json.bak
