@@ -22,12 +22,6 @@
       ]
     },
     {
-      "source": "npm:pi-codex-web-search",
-      "extensions": [
-        "-src\\index.ts"
-      ]
-    },
-    {
       "source": "npm:pi-bash-live-view",
       "extensions": [
         "+index.ts"
@@ -57,7 +51,6 @@
     "-extensions\\command-palette\\index.ts",
     "-extensions\\image-preview\\index.ts",
     "-extensions\\redraws.ts",
-    "-extensions\\powerline-footer\\index.ts",
     "+extensions\\smart-sessions\\index.ts",
     "-extensions\\usage-extension\\index.ts",
     "-extensions\\you-are-right-killer.ts",
@@ -72,7 +65,9 @@
     "-extensions\\multicodex.ts",
     "-extensions\\files.ts",
     "+extensions\\tps.ts",
-    "+extensions\\tools\\index.ts"
+    "-extensions\\diff-renderer\\index.ts",
+    "+extensions\\tool-selector\\index.ts",
+    "+extensions\\powerline-footer\\index.ts"
   ],
   "skills": [
     "-..\\..\\.agents\\skills\\userinterface-wiki\\SKILL.md",
