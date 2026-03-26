@@ -166,7 +166,7 @@ export class WindowsAdapter implements TerminalAdapter {
     const windowTitle = options.teamName ? `${options.teamName}: ${options.name}` : options.name;
 
     const spawnArgs = [
-      "new-window",
+      "-w", "new",
       "--profile", "pi-teams-pwsh",
       "--title", windowTitle,
       "--",

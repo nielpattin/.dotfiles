@@ -156,15 +156,16 @@ describe("WindowsAdapter", () => {
       expect(windowId).toMatch(/^windows_win_\d+_team-lead$/);
       const call = mockExecCommand.mock.calls[2];
       expect(call[0]).toBe("wt");
-      expect(call[1][0]).toBe("new-window");
-      expect(call[1][1]).toBe("--profile");
-      expect(call[1][2]).toBe("pi-teams-pwsh");
-      expect(call[1][3]).toBe("--title");
-      expect(call[1][4]).toBe("team1: team-lead");
-      expect(call[1][5]).toBe("--");
-      expect(call[1][6]).toBe("pwsh");
-      expect(call[1][7]).toBe("-EncodedCommand");
-      expect(decodeUtf16Base64(call[1][8])).toBe(
+      expect(call[1][0]).toBe("-w");
+      expect(call[1][1]).toBe("new");
+      expect(call[1][2]).toBe("--profile");
+      expect(call[1][3]).toBe("pi-teams-pwsh");
+      expect(call[1][4]).toBe("--title");
+      expect(call[1][5]).toBe("team1: team-lead");
+      expect(call[1][6]).toBe("--");
+      expect(call[1][7]).toBe("pwsh");
+      expect(call[1][8]).toBe("-EncodedCommand");
+      expect(decodeUtf16Base64(call[1][9])).toBe(
         "$env:PI_TEAM_NAME='team1'; $env:PI_AGENT_NAME='team-lead'; Set-Location -LiteralPath 'C:/test/path'; pi"
       );
     });
@@ -185,8 +186,8 @@ describe("WindowsAdapter", () => {
 
       expect(windowId).toMatch(/^windows_win_\d+_team-lead$/);
       const call = mockExecCommand.mock.calls[3];
-      expect(call[1][6]).toBe("powershell");
-      expect(decodeUtf16Base64(call[1][8])).toBe("Set-Location -LiteralPath 'C:/test/path'; pi");
+      expect(call[1][7]).toBe("powershell");
+      expect(decodeUtf16Base64(call[1][9])).toBe("Set-Location -LiteralPath 'C:/test/path'; pi");
     });
   });
 
