@@ -1,0 +1,10 @@
+# Global pi-teams templates aligned to your workflow.
+#
+# Available global agents in ~/.pi/agent/agents:
+# - scout
+# - worker
+# - reviewer
+# - planner
+# - documenter
+# - browser
+# - ui-mate
