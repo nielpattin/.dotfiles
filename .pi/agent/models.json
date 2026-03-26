@@ -5,10 +5,12 @@
     "proxx": {
       "baseUrl": "http://127.0.0.1:8789/v1",
       "api": "openai-completions",
-      "apiKey": "PROXX_API_KEY",
+      "apiKey": "PROXY_API_KEY",
       "authHeader": true,
       "compat": {
-        "supportsDeveloperRole": false
+        "supportsDeveloperRole": false,
+        "supportsUsageInStreaming": false,
+        "supportsReasoningEffort": false
       },
       "models": [
         {
