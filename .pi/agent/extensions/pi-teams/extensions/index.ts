@@ -15,6 +15,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { spawnSync } from "node:child_process";
 
+const objectSchema = (...args: any[]): any => (Type.Object as any)(...args);
+const enumSchema = (...args: any[]): any => (StringEnum as any)(...args);
+
 /**
  * Build the command used to relaunch pi for teammate processes.
  *
@@ -518,7 +521,7 @@ export default function (pi: ExtensionAPI) {
     name: "team_create",
     label: "Create Team",
     description: "Create a new agent team.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       description: Type.Optional(Type.String()),
       default_model: Type.Optional(Type.String()),
@@ -548,13 +551,13 @@ export default function (pi: ExtensionAPI) {
     name: "spawn_teammate",
     label: "Spawn Teammate",
     description: "Spawn a new teammate in a terminal pane or separate window.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       name: Type.String(),
       prompt: Type.String(),
       cwd: Type.String(),
       model: Type.Optional(Type.String()),
-      thinking: Type.Optional(StringEnum(["off", "minimal", "low", "medium", "high"])),
+      thinking: Type.Optional(enumSchema(["off", "minimal", "low", "medium", "high"])),
       plan_mode_required: Type.Optional(Type.Boolean({ default: false })),
       separate_window: Type.Optional(Type.Boolean({ default: false })),
     }),
@@ -694,7 +697,7 @@ export default function (pi: ExtensionAPI) {
     name: "spawn_lead_window",
     label: "Spawn Lead Window",
     description: "Open the team lead in a separate OS window.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       cwd: Type.Optional(Type.String()),
     }),
@@ -727,7 +730,7 @@ export default function (pi: ExtensionAPI) {
     name: "send_message",
     label: "Send Message",
     description: "Send a message to a teammate.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       recipient: Type.String(),
       content: Type.String(),
@@ -746,7 +749,7 @@ export default function (pi: ExtensionAPI) {
     name: "broadcast_message",
     label: "Broadcast Message",
     description: "Broadcast a message to all team members except the sender.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       content: Type.String(),
       summary: Type.String(),
@@ -765,7 +768,7 @@ export default function (pi: ExtensionAPI) {
     name: "read_inbox",
     label: "Read Inbox",
     description: "Read messages from an agent's inbox.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       agent_name: Type.Optional(Type.String({ description: "Whose inbox to read. Defaults to your own." })),
       unread_only: Type.Optional(Type.Boolean({ default: true })),
@@ -794,7 +797,7 @@ export default function (pi: ExtensionAPI) {
     name: "task_create",
     label: "Create Task",
     description: "Create a new team task.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       subject: Type.String(),
       description: Type.String(),
@@ -812,7 +815,7 @@ export default function (pi: ExtensionAPI) {
     name: "task_submit_plan",
     label: "Submit Plan",
     description: "Submit a plan for a task, updating its status to 'planning'.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       task_id: Type.String(),
       plan: Type.String(),
@@ -830,10 +833,10 @@ export default function (pi: ExtensionAPI) {
     name: "task_evaluate_plan",
     label: "Evaluate Plan",
     description: "Evaluate a submitted plan for a task.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       task_id: Type.String(),
-      action: StringEnum(["approve", "reject"]),
+      action: enumSchema(["approve", "reject"]),
       feedback: Type.Optional(Type.String({ description: "Required for rejection" })),
     }),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
@@ -849,7 +852,7 @@ export default function (pi: ExtensionAPI) {
     name: "task_list",
     label: "List Tasks",
     description: "List all tasks for a team.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
     }),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
@@ -865,10 +868,10 @@ export default function (pi: ExtensionAPI) {
     name: "task_update",
     label: "Update Task",
     description: "Update a task's status or owner.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       task_id: Type.String(),
-      status: Type.Optional(StringEnum(["pending", "planning", "in_progress", "completed", "deleted"])),
+      status: Type.Optional(enumSchema(["pending", "planning", "in_progress", "completed", "deleted"])),
       owner: Type.Optional(Type.String()),
     }),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
@@ -887,7 +890,7 @@ export default function (pi: ExtensionAPI) {
     name: "team_shutdown",
     label: "Shutdown Team",
     description: "Shutdown the entire team and close all panes/windows.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
     }),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
@@ -897,6 +900,28 @@ export default function (pi: ExtensionAPI) {
         for (const member of config.members) {
           await killTeammate(teamName, member);
         }
+
+        const leadMember = config.members.find(m => m.name === "team-lead");
+        if (leadMember) {
+          const leadPidFile = path.join(paths.teamDir(teamName), `team-lead.pid`);
+          if (fs.existsSync(leadPidFile)) {
+            try {
+              const pid = fs.readFileSync(leadPidFile, "utf-8").trim();
+              process.kill(parseInt(pid), "SIGKILL");
+              fs.unlinkSync(leadPidFile);
+            } catch {}
+          }
+
+          if (terminal) {
+            if (leadMember.windowId) {
+              try { terminal.killWindow(leadMember.windowId); } catch {}
+            }
+            if (leadMember.tmuxPaneId) {
+              try { terminal.kill(leadMember.tmuxPaneId); } catch {}
+            }
+          }
+        }
+
         const dir = paths.teamDir(teamName);
         const tasksDir = paths.taskDir(teamName);
         if (fs.existsSync(tasksDir)) fs.rmSync(tasksDir, { recursive: true });
@@ -922,7 +947,7 @@ export default function (pi: ExtensionAPI) {
     name: "cleanup_agent_sessions",
     label: "Cleanup Agent Sessions",
     description: "Clean up orphaned agent session folders from ~/.pi/agent/teams/ that are older than a specified age.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       max_age_hours: Type.Optional(Type.Number()),
     }),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
@@ -943,7 +968,7 @@ export default function (pi: ExtensionAPI) {
     name: "task_read",
     label: "Read Task",
     description: "Read details of a specific task.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       task_id: Type.String(),
     }),
@@ -960,7 +985,7 @@ export default function (pi: ExtensionAPI) {
     name: "check_teammate",
     label: "Check Teammate",
     description: "Check a single teammate's status.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       agent_name: Type.String(),
     }),
@@ -1019,7 +1044,7 @@ export default function (pi: ExtensionAPI) {
     name: "process_shutdown_approved",
     label: "Process Shutdown Approved",
     description: "Process a teammate's shutdown.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String(),
       agent_name: Type.String(),
     }),
@@ -1041,7 +1066,7 @@ export default function (pi: ExtensionAPI) {
     name: "list_predefined_teams",
     label: "List Predefined Teams",
     description: "List all available predefined team configurations from teams.yaml files. These are team templates that can be instantiated with create_predefined_team.",
-    parameters: Type.Object({}),
+    parameters: objectSchema({}),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
       const projectDir = ctx.cwd;
       const predefinedTeams = predefined.getAllPredefinedTeams(projectDir);
@@ -1074,7 +1099,7 @@ export default function (pi: ExtensionAPI) {
     name: "list_predefined_agents",
     label: "List Predefined Agents",
     description: "List all available predefined agent definitions from .md files. These can be used individually or as part of predefined teams.",
-    parameters: Type.Object({}),
+    parameters: objectSchema({}),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
       const projectDir = ctx.cwd;
       const agents = predefined.getAllAgentDefinitions(projectDir);
@@ -1098,7 +1123,7 @@ export default function (pi: ExtensionAPI) {
     name: "create_predefined_team",
     label: "Create Predefined Team",
     description: "Create a team from a predefined team configuration. Spawns all agents defined in the team template from teams.yaml. Each agent is spawned with its predefined prompt, tools, and settings.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String({ description: "Name for the new team instance" }),
       predefined_team: Type.String({ description: "Name of the predefined team template from teams.yaml" }),
       cwd: Type.String({ description: "Working directory for spawned agents" }),
@@ -1256,11 +1281,11 @@ export default function (pi: ExtensionAPI) {
     name: "save_team_as_template",
     label: "Save Team as Template",
     description: "Save a runtime team as a reusable predefined team template. Creates agent definition files and updates teams.yaml. Use this when you've created a team with custom prompts and want to reuse it later.",
-    parameters: Type.Object({
+    parameters: objectSchema({
       team_name: Type.String({ description: "Name of the runtime team to save" }),
       template_name: Type.String({ description: "Name for the template (e.g., 'modularization', 'frontend-team')" }),
       description: Type.Optional(Type.String({ description: "Description for the template" })),
-      scope: Type.Optional(StringEnum(["user", "project"], { description: "Where to save: 'user' for global (~/.pi), 'project' for project-local (.pi). Defaults to 'user'." })),
+      scope: Type.Optional(enumSchema(["user", "project"], { description: "Where to save: 'user' for global (~/.pi), 'project' for project-local (.pi). Defaults to 'user'." })),
     }),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
       const teamName = params.team_name;
@@ -1320,7 +1345,7 @@ You can now use this template with:
     name: "list_runtime_teams",
     label: "List Runtime Teams",
     description: "List all runtime team configurations that can be saved as templates. These are active or saved teams from ~/.pi/teams/.",
-    parameters: Type.Object({}),
+    parameters: objectSchema({}),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
       const runtimeTeams = predefined.listRuntimeTeams();
       

@@ -142,7 +142,6 @@ describe("WindowsAdapter", () => {
     it("spawns a new window", () => {
       Object.defineProperty(process, "platform", { value: "win32" });
       mockExecCommand.mockReturnValueOnce({ stdout: "wt", stderr: "", status: 0 });
-      mockExecCommand.mockReturnValueOnce({ stdout: "found", stderr: "", status: 0 });
       mockExecCommand.mockReturnValueOnce({ stdout: "", stderr: "", status: 0 });
 
       const windowId = adapter.spawnWindow({
@@ -153,8 +152,8 @@ describe("WindowsAdapter", () => {
         teamName: "team1",
       });
 
-      expect(windowId).toMatch(/^windows_win_\d+_team-lead$/);
-      const call = mockExecCommand.mock.calls[2];
+      expect(windowId).toMatch(/^windows_win_title_/);
+      const call = mockExecCommand.mock.calls[1];
       expect(call[0]).toBe("wt");
       expect(call[1][0]).toBe("-w");
       expect(call[1][1]).toBe("new");
@@ -172,7 +171,6 @@ describe("WindowsAdapter", () => {
 
     it("falls back to powershell when pwsh is not available", () => {
       Object.defineProperty(process, "platform", { value: "win32" });
-      mockExecCommand.mockReturnValueOnce({ stdout: "wt", stderr: "", status: 0 });
       mockExecCommand.mockReturnValueOnce({ stdout: "", stderr: "", status: 1 });
       mockExecCommand.mockReturnValueOnce({ stdout: "found", stderr: "", status: 0 });
       mockExecCommand.mockReturnValueOnce({ stdout: "", stderr: "", status: 0 });
@@ -184,8 +182,9 @@ describe("WindowsAdapter", () => {
         env: {},
       });
 
-      expect(windowId).toMatch(/^windows_win_\d+_team-lead$/);
-      const call = mockExecCommand.mock.calls[3];
+      expect(windowId).toMatch(/^windows_win_title_/);
+      const call = mockExecCommand.mock.calls[2];
+      expect(call[0]).toBe("wt");
       expect(call[1][7]).toBe("powershell");
       expect(decodeUtf16Base64(call[1][9])).toBe("Set-Location -LiteralPath 'C:/test/path'; pi");
     });
@@ -199,6 +198,13 @@ describe("WindowsAdapter", () => {
     adapter.killWindow("iterm_window-123");
   });
 
+  it("killWindow closes tracked window by title", () => {
+    mockExecCommand.mockReturnValueOnce({ stdout: "found", stderr: "", status: 0 });
+    mockExecCommand.mockReturnValueOnce({ stdout: "", stderr: "", status: 0 });
+    adapter.killWindow("windows_win_title_dGVhbTE6IHRlYW0tbGVhZA");
+    expect(mockExecCommand).toHaveBeenNthCalledWith(2, "pwsh", ["-NoProfile", "-Command", expect.stringContaining("FindWindow")]);
+  });
+
   it("isAlive returns true for windows pane ids", () => {
     expect(adapter.isAlive("windows_123_test")).toBe(true);
   });
@@ -207,8 +213,10 @@ describe("WindowsAdapter", () => {
     expect(adapter.isAlive("tmux_pane-123")).toBe(false);
   });
 
-  it("isWindowAlive returns true for windows window ids", () => {
-    expect(adapter.isWindowAlive("windows_win_123_test")).toBe(true);
+  it("isWindowAlive returns true for tracked live window ids", () => {
+    mockExecCommand.mockReturnValueOnce({ stdout: "found", stderr: "", status: 0 });
+    mockExecCommand.mockReturnValueOnce({ stdout: "alive\n", stderr: "", status: 0 });
+    expect(adapter.isWindowAlive("windows_win_title_dGVhbTE6IHRlYW0tbGVhZA")).toBe(true);
   });
 
   it("isWindowAlive returns false for non-windows window ids", () => {

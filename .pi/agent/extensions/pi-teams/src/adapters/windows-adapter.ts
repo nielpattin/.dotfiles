@@ -98,6 +98,25 @@ export class WindowsAdapter implements TerminalAdapter {
     return Buffer.from(script, "utf16le").toString("base64");
   }
 
+  private buildPsArrayLiteral(values: string[]): string {
+    const quoted = values.map((value) => `'${this.escapeForSingleQuotedPs(value)}'`);
+    return `@(${quoted.join(", ")})`;
+  }
+
+  private encodeWindowTitle(title: string): string {
+    return Buffer.from(title, "utf8").toString("base64url");
+  }
+
+  private decodeWindowTitle(windowId: string): string | null {
+    const match = /^windows_win_title_(.+)$/.exec(windowId);
+    if (!match) return null;
+    try {
+      return Buffer.from(match[1], "base64url").toString("utf8");
+    } catch {
+      return null;
+    }
+  }
+
   private buildSplitPaneArgs(options: SpawnOptions, splitDirection: "vertical" | "horizontal"): string[] {
     const psBin = this.findPsBinary();
     const encodedCommand = this.encodePsCommand(this.buildPsScript(options));
@@ -164,7 +183,6 @@ export class WindowsAdapter implements TerminalAdapter {
     const psBin = this.findPsBinary();
     const encodedCommand = this.encodePsCommand(this.buildPsScript(options));
     const windowTitle = options.teamName ? `${options.teamName}: ${options.name}` : options.name;
-
     const spawnArgs = [
       "-w", "new",
       "--profile", "pi-teams-pwsh",
@@ -180,7 +198,7 @@ export class WindowsAdapter implements TerminalAdapter {
       throw new Error(`Windows Terminal spawn-window failed: ${result.stderr || result.stdout}`);
     }
 
-    return `windows_win_${Date.now()}_${options.name}`;
+    return `windows_win_title_${this.encodeWindowTitle(windowTitle)}`;
   }
 
   setWindowTitle(windowId: string, title: string): void {
@@ -189,10 +207,30 @@ export class WindowsAdapter implements TerminalAdapter {
 
   killWindow(windowId: string): void {
     if (!windowId?.startsWith("windows_win_")) return;
+
+    const title = this.decodeWindowTitle(windowId);
+    if (!title) return;
+
+    const launcher = this.findPsBinary();
+    const script = `Add-Type -TypeDefinition @'\nusing System;\nusing System.Runtime.InteropServices;\npublic static class PiTeamsWin32 {\n  [DllImport("user32.dll", CharSet = CharSet.Unicode)]\n  public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);\n  [DllImport("user32.dll", CharSet = CharSet.Unicode)]\n  public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);\n}\n'@; $hwnd = [PiTeamsWin32]::FindWindow($null, '${this.escapeForSingleQuotedPs(title)}'); if ($hwnd -ne [IntPtr]::Zero) { [PiTeamsWin32]::PostMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }`;
+    try {
+      execCommand(launcher, ["-NoProfile", "-Command", script]);
+    } catch {}
   }
 
   isWindowAlive(windowId: string): boolean {
     if (!windowId?.startsWith("windows_win_")) return false;
-    return true;
+
+    const title = this.decodeWindowTitle(windowId);
+    if (!title) return false;
+
+    const launcher = this.findPsBinary();
+    const script = `Add-Type -TypeDefinition @'\nusing System;\nusing System.Runtime.InteropServices;\npublic static class PiTeamsWin32Alive {\n  [DllImport("user32.dll", CharSet = CharSet.Unicode)]\n  public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);\n}\n'@; if ([PiTeamsWin32Alive]::FindWindow($null, '${this.escapeForSingleQuotedPs(title)}') -ne [IntPtr]::Zero) { 'alive' }`;
+    try {
+      const result = execCommand(launcher, ["-NoProfile", "-Command", script]);
+      return result.status === 0 && result.stdout.trim() === "alive";
+    } catch {
+      return false;
+    }
   }
 }
