@@ -3,11 +3,15 @@
   "enabled": true,
   "shortcutEnabled": true,
   "shortcutKey": "alt+p",
-  "targetFamilyMode": "auto",
+  "targetFamilyMode": "claude",
   "fallbackFamily": "gpt",
   "exactModelOverrides": [],
   "familyOverrides": [],
   "enhancerModelMode": "fixed",
+  "fixedEnhancerModel": {
+    "provider": "openai-codex",
+    "id": "gpt-5.4-mini"
+  },
   "includeRecentConversation": false,
   "includeProjectMetadata": false,
   "statusBarEnabled": false,
@@ -17,9 +21,5 @@
   "autoSendEnhancedPrompt": false,
   "autoSendBusyBehavior": "steer",
   "preserveCodeBlocks": true,
-  "enhancementTimeoutMs": 45000,
-  "fixedEnhancerModel": {
-    "provider": "openai-codex",
-    "id": "gpt-5.4-mini"
-  }
+  "enhancementTimeoutMs": 45000
 }

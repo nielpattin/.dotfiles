@@ -1,10 +1,10 @@
 {
   "lastChangelogVersion": "0.62.0",
   "hideThinkingBlock": false,
-  "defaultProvider": "github-copilot",
-  "defaultModel": "gemini-3.1-pro-preview",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.4",
   "editorPaddingX": 0,
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "medium",
   "theme": "catppuccin-mocha",
   "transport": "sse",
   "packages": [
@@ -36,7 +36,8 @@
       ]
     },
     "https://github.com/denismrvoljak/pi-tutor",
-    "git:https://github.com/calesennett/pi-codex-fast"
+    "git:https://github.com/calesennett/pi-codex-fast",
+    "C:\\Users\\niel\\.pi\\agent\\extensions\\pi-teams"
   ],
   "extensions": [
     "-extensions\\theme-cycle\\index.ts",
@@ -62,49 +63,27 @@
     "-extensions\\subagent\\index.ts",
     "-extensions\\working-vibes\\index.ts",
     "-extensions\\tab-status\\index.ts",
-    "+extensions\\skills\\index.ts",
     "-extensions\\multicodex.ts",
     "-extensions\\files.ts",
     "+extensions\\tps.ts",
     "-extensions\\diff-renderer\\index.ts",
     "+extensions\\tool-selector\\index.ts",
-    "-extensions\\powerline-footer\\index.ts"
-  ],
-  "skills": [
-    "-..\\..\\.agents\\skills\\userinterface-wiki\\SKILL.md",
-    "-..\\..\\.agents\\skills\\agent-browser\\SKILL.md",
-    "-skills\\writing-git-commits\\SKILL.md",
-    "-skills\\userinterface-wiki\\SKILL.md",
-    "-skills\\update-pi\\SKILL.md",
-    "-skills\\uncodixfy\\SKILL.md",
-    "-skills\\triage-expert\\SKILL.md",
-    "-skills\\tracer-bullet\\SKILL.md",
-    "-skills\\session-query\\SKILL.md",
-    "-skills\\roadmap\\SKILL.md",
-    "-skills\\resolve-conflicts\\SKILL.md",
-    "-skills\\prd-task\\SKILL.md",
-    "-skills\\mermaid-diagrams\\SKILL.md",
-    "-skills\\index-knowledge\\SKILL.md",
-    "-skills\\frontend-design\\SKILL.md",
-    "-skills\\figma-use\\SKILL.md",
-    "-skills\\drawio-diagrams-enhanced\\SKILL.md",
-    "-skills\\creating-pi-extensions\\SKILL.md",
-    "-skills\\agent-browser\\SKILL.md",
-    "-skills\\prd\\SKILL.md"
+    "-extensions\\powerline-footer\\index.ts",
+    "-extensions\\skills\\index.ts"
   ],
   "themes": [
     "-themes\\cyberpunk.json",
     "-themes\\dracula.json",
     "-themes\\everforest.json",
     "-themes\\midnight-ocean.json",
-    "-themes\\nord.json",
     "-themes\\ocean-breeze.json",
     "-themes\\orng.json",
     "-themes\\rose-pine.json",
     "-themes\\synthwave.json",
     "-themes\\tokyo-night.json",
     "-themes\\terminal.json",
-    "-themes\\gruvbox.json"
+    "-themes\\gruvbox.json",
+    "-themes\\nord.json"
   ],
   "workingVibe": "game-dev",
   "images": {
@@ -126,7 +105,7 @@
   "pi-codex-fast": {
     "enabled": false
   },
-  "enableSkillCommands": false,
+  "enableSkillCommands": true,
   "steeringMode": "all",
   "followUpMode": "all",
   "prompts": [
@@ -138,5 +117,15 @@
   ],
   "compaction": {
     "enabled": false
-  }
+  },
+  "skills": [
+    "-skills\\writing-git-commits\\SKILL.md",
+    "-skills\\update-pi\\SKILL.md",
+    "+skills\\typeset\\SKILL.md",
+    "+skills\\teach-impeccable\\SKILL.md",
+    "+skills\\triage-expert\\SKILL.md",
+    "-skills\\figma-use\\SKILL.md",
+    "-skills\\drawio-diagrams-enhanced\\SKILL.md",
+    "-skills\\agent-browser\\SKILL.md"
+  ]
 }

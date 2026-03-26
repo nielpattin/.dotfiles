@@ -64,7 +64,7 @@ function dot-pi {
         $env:GIT_WORK_TREE = "$HOME"
         # $env:GIT_OPTIONAL_LOCKS = "0"
         Set-Location $HOME
-        & pi --no-skills @PiArgs
+        & pi @PiArgs
     }
     finally {
         if ($null -eq $oldGitDir) {
