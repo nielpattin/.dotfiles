@@ -101,10 +101,10 @@ plan-build:
     const result = parseTeamsYaml(content);
     
     expect(result).toHaveLength(2);
-    expect(result[0].name).toBe("full");
-    expect(result[0].agents).toEqual(["scout", "planner", "builder"]);
-    expect(result[1].name).toBe("plan-build");
-    expect(result[1].agents).toEqual(["planner", "builder", "reviewer"]);
+    expect(result[0]!.name).toBe("full");
+    expect(result[0]!.agents).toEqual(["scout", "planner", "builder"]);
+    expect(result[1]!.name).toBe("plan-build");
+    expect(result[1]!.agents).toEqual(["planner", "builder", "reviewer"]);
   });
 
   it("handles comments and empty lines", () => {
@@ -123,8 +123,8 @@ minimal:
     const result = parseTeamsYaml(content);
     
     expect(result).toHaveLength(2);
-    expect(result[0].agents).toEqual(["scout", "planner"]);
-    expect(result[1].agents).toEqual(["scout"]);
+    expect(result[0]!.agents).toEqual(["scout", "planner"]);
+    expect(result[1]!.agents).toEqual(["scout"]);
   });
 
   it("returns empty array for empty content", () => {
@@ -142,7 +142,7 @@ full:
     const result = parseTeamsYaml(content);
     
     expect(result).toHaveLength(1);
-    expect(result[0].agents).toEqual(["scout", "planner"]);
+    expect(result[0]!.agents).toEqual(["scout", "planner"]);
   });
 });
 
@@ -195,7 +195,7 @@ Special prompt`);
     const result = discoverAgents(testDir);
     
     expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("special");
+    expect(result[0]!.name).toBe("special");
   });
 
   it("returns empty array for non-existent directory", () => {
@@ -214,7 +214,7 @@ Valid prompt`);
     const result = discoverAgents(testDir);
     
     expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("valid");
+    expect(result[0]!.name).toBe("valid");
   });
 });
 
@@ -244,8 +244,8 @@ full:
     const result = discoverTeams(testDir);
     
     expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("full");
-    expect(result[0].agents).toEqual(["scout", "planner"]);
+    expect(result[0]!.name).toBe("full");
+    expect(result[0]!.agents).toEqual(["scout", "planner"]);
   });
 
   it("returns empty array when teams.yaml does not exist", () => {

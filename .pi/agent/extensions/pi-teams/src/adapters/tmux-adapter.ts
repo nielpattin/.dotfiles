@@ -5,7 +5,8 @@
  */
 
 import { execSync } from "node:child_process";
-import { TerminalAdapter, SpawnOptions, execCommand } from "../utils/terminal-adapter";
+import { execCommand } from "../utils/terminal-adapter";
+import type { TerminalAdapter, SpawnOptions } from "../utils/terminal-adapter";
 
 export class TmuxAdapter implements TerminalAdapter {
   readonly name = "tmux";
@@ -150,7 +151,7 @@ export class TmuxAdapter implements TerminalAdapter {
    * Not supported - throws error
    */
   spawnWindow(_options: SpawnOptions): string {
-    throw new Error("tmux does not support spawning separate OS windows. Use iTerm2 or WezTerm instead.");
+    throw new Error("tmux does not support spawning separate OS windows.");
   }
 
   /**

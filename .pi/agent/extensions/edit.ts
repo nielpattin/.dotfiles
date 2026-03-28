@@ -239,8 +239,8 @@ async function generateDiffString(oldContent: string, newContent: string): Promi
 	for (const line of lines) {
 		const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
 		if (match) {
-			oldLineNum = Number.parseInt(match[1], 10);
-			newLineNum = Number.parseInt(match[2], 10);
+			oldLineNum = Number.parseInt(match[1] ?? "0", 10);
+			newLineNum = Number.parseInt(match[2] ?? "0", 10);
 			maxLineNum = Math.max(maxLineNum, oldLineNum, newLineNum);
 		}
 	}
@@ -249,8 +249,8 @@ async function generateDiffString(oldContent: string, newContent: string): Promi
 	for (const line of lines) {
 		const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
 		if (match) {
-			oldLineNum = Number.parseInt(match[1], 10);
-			newLineNum = Number.parseInt(match[2], 10);
+			oldLineNum = Number.parseInt(match[1] ?? "0", 10);
+			newLineNum = Number.parseInt(match[2] ?? "0", 10);
 			continue;
 		}
 		if (line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++") || line === "") {
@@ -354,8 +354,8 @@ async function executeMultiReplaceMode(
 
 		matchedEdits.sort((a, b) => a.index - b.index);
 		for (let i = 1; i < matchedEdits.length; i++) {
-			const previous = matchedEdits[i - 1];
-			const current = matchedEdits[i];
+			const previous = matchedEdits[i - 1]!;
+			const current = matchedEdits[i]!;
 			if (previous.index + previous.matchLength > current.index) {
 				throw new Error("Edit tool input is invalid. edits must not overlap in the original file.");
 			}
@@ -363,7 +363,7 @@ async function executeMultiReplaceMode(
 
 		let newContent = baseContent;
 		for (let i = matchedEdits.length - 1; i >= 0; i--) {
-			const edit = matchedEdits[i];
+			const edit = matchedEdits[i]!;
 			newContent =
 				newContent.slice(0, edit.index) + edit.newText + newContent.slice(edit.index + edit.matchLength);
 		}

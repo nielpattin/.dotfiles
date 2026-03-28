@@ -5,7 +5,8 @@
  * Uses wt (Windows Terminal) CLI for pane management and PowerShell for command execution.
  */
 
-import { TerminalAdapter, SpawnOptions, execCommand } from "../utils/terminal-adapter";
+import { execCommand } from "../utils/terminal-adapter";
+import type { TerminalAdapter, SpawnOptions } from "../utils/terminal-adapter";
 
 export class WindowsAdapter implements TerminalAdapter {
   readonly name = "Windows";
@@ -111,7 +112,7 @@ export class WindowsAdapter implements TerminalAdapter {
     const match = /^windows_win_title_(.+)$/.exec(windowId);
     if (!match) return null;
     try {
-      return Buffer.from(match[1], "base64url").toString("utf8");
+      return Buffer.from(match[1] ?? "", "base64url").toString("utf8");
     } catch {
       return null;
     }

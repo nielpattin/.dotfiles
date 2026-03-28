@@ -34,7 +34,7 @@ describe("Messaging Utilities", () => {
     
     const inbox = await readInbox("test-team", "receiver", false, false);
     expect(inbox.length).toBe(1);
-    expect(inbox[0].text).toBe("hello");
+    expect(inbox[0]!.text).toBe("hello");
   });
 
   it("should handle concurrent appends (Stress Test)", async () => {
@@ -88,14 +88,14 @@ describe("Messaging Utilities", () => {
     // Check member1's inbox
     const inbox1 = await readInbox("test-team", "member1", false, false);
     expect(inbox1.length).toBe(1);
-    expect(inbox1[0].text).toBe("broadcast text");
-    expect(inbox1[0].from).toBe("sender");
+    expect(inbox1[0]!.text).toBe("broadcast text");
+    expect(inbox1[0]!.from).toBe("sender");
 
     // Check member2's inbox
     const inbox2 = await readInbox("test-team", "member2", false, false);
     expect(inbox2.length).toBe(1);
-    expect(inbox2[0].text).toBe("broadcast text");
-    expect(inbox2[0].from).toBe("sender");
+    expect(inbox2[0]!.text).toBe("broadcast text");
+    expect(inbox2[0]!.from).toBe("sender");
 
     // Check sender's inbox (should be empty)
     const inboxSender = await readInbox("test-team", "sender", false, false);

@@ -6,9 +6,8 @@ import * as teams from "../src/utils/teams";
 import * as tasks from "../src/utils/tasks";
 import * as messaging from "../src/utils/messaging";
 import * as runtime from "../src/utils/runtime";
-import { Member } from "../src/utils/models";
+import type { Member } from "../src/utils/models";
 import { getTerminalAdapter } from "../src/adapters/terminal-registry";
-import { Iterm2Adapter } from "../src/adapters/iterm2-adapter";
 import * as predefined from "../src/utils/predefined-teams";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -159,7 +158,8 @@ function resolveModelWithProvider(modelName: string): string | null {
       const bPriority = bIndex === -1 ? 999 : bIndex;
       return aPriority - bPriority;
     });
-    return `${exactMatches[0].provider}/${exactMatches[0].model}`;
+    const bestMatch = exactMatches[0]!;
+    return `${bestMatch.provider}/${bestMatch.model}`;
   }
 
   // Try partial match (model name contains the search term)
@@ -177,7 +177,8 @@ function resolveModelWithProvider(modelName: string): string | null {
       }
     }
     // Return first match if no preferred provider found
-    return `${partialMatches[0].provider}/${partialMatches[0].model}`;
+    const firstMatch = partialMatches[0]!;
+    return `${firstMatch.provider}/${firstMatch.model}`;
   }
 
   return null;
@@ -372,7 +373,7 @@ export default function (pi: ExtensionAPI) {
         try {
           const unread = await messaging.readInbox(teamName, agentName, true, false);
           if (unread.length > 0) {
-            pi.sendUserMessage(`I have ${unread.length} new message(s) in my inbox. Reading them now...`);
+            pi.sendUserMessage(`I have ${unread.length} new message(s) in my inbox. Reading them now...`, { deliverAs: "followUp" });
           }
         } catch {
           // Ignore errors for lead polling
@@ -413,7 +414,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       setTimeout(() => {
-        pi.sendUserMessage(`I am starting my work as '${agentName}' on team '${teamName}'. Checking my inbox for instructions...`);
+        pi.sendUserMessage(`I am starting my work as '${agentName}' on team '${teamName}'. Checking my inbox for instructions...`, { deliverAs: "followUp" });
       }, 1000);
 
       // Inbox polling for teammates
@@ -426,7 +427,7 @@ export default function (pi: ExtensionAPI) {
                 lastHeartbeatAt: Date.now(),
               });
               if (unread.length > 0) {
-                pi.sendUserMessage(`I have ${unread.length} new message(s) in my inbox. Reading them now...`);
+                pi.sendUserMessage(`I have ${unread.length} new message(s) in my inbox. Reading them now...`, { deliverAs: "followUp" });
               }
             } catch (e) {
               await runtime.writeRuntimeStatus(teamName!, agentName, {
@@ -550,7 +551,11 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "spawn_teammate",
     label: "Spawn Teammate",
-    description: "Spawn a new teammate in a terminal pane or separate window.",
+    description: "Spawn a new teammate in a terminal pane or separate window. If specifying a model, use an exact provider/model or exact listed model name. Do not guess model names.",
+    promptGuidelines: [
+      "If you specify the model parameter, use an exact provider/model or exact listed model name from `pi --list-models`. Do not guess or normalize model names yourself.",
+      "If the user mentions a model loosely and you are not certain of the exact name, first check available models with `pi --list-models` via bash, then pass the exact value to this tool. If you cannot verify it, omit the model parameter and explain that you used the team default.",
+    ],
     parameters: objectSchema({
       team_name: Type.String(),
       name: Type.String(),
@@ -627,11 +632,9 @@ export default function (pi: ExtensionAPI) {
       let piCmd = piBinary;
 
       if (chosenModel) {
-        // Use the combined --model provider/model:thinking format
+        piCmd = `${piBinary} --model ${chosenModel}`;
         if (params.thinking) {
-          piCmd = `${piBinary} --model ${chosenModel}:${params.thinking}`;
-        } else {
-          piCmd = `${piBinary} --model ${chosenModel}`;
+          piCmd += ` --thinking ${params.thinking}`;
         }
       } else if (params.thinking) {
         piCmd = `${piBinary} --thinking ${params.thinking}`;
@@ -658,16 +661,6 @@ export default function (pi: ExtensionAPI) {
           });
           await teams.updateMember(safeTeamName, safeName, { windowId: terminalId });
         } else {
-          if (terminal instanceof Iterm2Adapter) {
-            const teammates = teamConfig.members.filter(m => m.agentType === "teammate" && m.tmuxPaneId.startsWith("iterm_"));
-            const lastTeammate = teammates.length > 0 ? teammates[teammates.length - 1] : null;
-            if (lastTeammate?.tmuxPaneId) {
-              terminal.setSpawnContext({ lastSessionId: lastTeammate.tmuxPaneId.replace("iterm_", "") });
-            } else {
-              terminal.setSpawnContext({});
-            }
-          }
-
           const leadMember = teamConfig.members.find(m => m.name === "team-lead");
           const anchorPaneId = terminal.name === "tmux"
             ? leadMember?.tmuxPaneId || process.env.TMUX_PANE || undefined
@@ -1204,10 +1197,9 @@ export default function (pi: ExtensionAPI) {
           let piCmd = piBinary;
 
           if (chosenModel) {
+            piCmd = `${piBinary} --model ${chosenModel}`;
             if (agentDef.thinking) {
-              piCmd = `${piBinary} --model ${chosenModel}:${agentDef.thinking}`;
-            } else {
-              piCmd = `${piBinary} --model ${chosenModel}`;
+              piCmd += ` --thinking ${agentDef.thinking}`;
             }
           } else if (agentDef.thinking) {
             piCmd = `${piBinary} --thinking ${agentDef.thinking}`;
@@ -1234,16 +1226,6 @@ export default function (pi: ExtensionAPI) {
               });
               await teams.updateMember(safeTeamName, safeName, { windowId: terminalId });
             } else {
-              if (terminal instanceof Iterm2Adapter) {
-                const teammates = (await teams.readConfig(safeTeamName)).members.filter(m => m.agentType === "teammate" && m.tmuxPaneId.startsWith("iterm_"));
-                const lastTeammate = teammates.length > 0 ? teammates[teammates.length - 1] : null;
-                if (lastTeammate?.tmuxPaneId) {
-                  terminal.setSpawnContext({ lastSessionId: lastTeammate.tmuxPaneId.replace("iterm_", "") });
-                } else {
-                  terminal.setSpawnContext({});
-                }
-              }
-
               const leadMember = (await teams.readConfig(safeTeamName)).members.find(m => m.name === "team-lead");
               const anchorPaneId = terminal.name === "tmux"
                 ? leadMember?.tmuxPaneId || process.env.TMUX_PANE || undefined

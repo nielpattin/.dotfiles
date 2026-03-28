@@ -67,8 +67,8 @@ describe("Tasks Utilities", () => {
     await createTask("test-team", "Task 2", "Desc 2");
     const tasksList = await listTasks("test-team");
     expect(tasksList.length).toBe(2);
-    expect(tasksList[0].id).toBe("1");
-    expect(tasksList[1].id).toBe("2");
+    expect(tasksList[0]!.id).toBe("1");
+    expect(tasksList[1]!.id).toBe("2");
   });
 
   it("should have consistent lock paths (Fixed BUG 2)", async () => {

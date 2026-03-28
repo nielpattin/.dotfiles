@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { InboxMessage } from "./models";
+import type { InboxMessage } from "./models";
 import { withLock } from "./lock";
 import { inboxPath } from "./paths";
 import { readConfig } from "./teams";

@@ -1,7 +1,7 @@
 // Project: pi-teams
 import fs from "node:fs";
 import path from "node:path";
-import { TaskFile } from "./models";
+import type { TaskFile } from "./models";
 import { taskDir, sanitizeName } from "./paths";
 import { teamExists } from "./teams";
 import { withLock } from "./lock";

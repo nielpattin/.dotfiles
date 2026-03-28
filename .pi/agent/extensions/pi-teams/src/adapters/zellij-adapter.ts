@@ -5,7 +5,8 @@
  * Note: Zellij uses --close-on-exit, so explicit kill is not needed.
  */
 
-import { TerminalAdapter, SpawnOptions, execCommand } from "../utils/terminal-adapter";
+import { execCommand } from "../utils/terminal-adapter";
+import type { TerminalAdapter, SpawnOptions } from "../utils/terminal-adapter";
 
 export class ZellijAdapter implements TerminalAdapter {
   readonly name = "zellij";
@@ -71,7 +72,7 @@ export class ZellijAdapter implements TerminalAdapter {
    * Not supported - throws error
    */
   spawnWindow(_options: SpawnOptions): string {
-    throw new Error("Zellij does not support spawning separate OS windows. Use iTerm2 or WezTerm instead.");
+    throw new Error("Zellij does not support spawning separate OS windows.");
   }
 
   /**

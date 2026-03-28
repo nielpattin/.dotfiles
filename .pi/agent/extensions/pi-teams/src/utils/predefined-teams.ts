@@ -33,8 +33,8 @@ export function parseAgentFrontmatter(content: string, filePath: string): AgentD
     return null;
   }
 
-  const frontmatterStr = frontmatterMatch[1];
-  const prompt = frontmatterMatch[2].trim();
+  const frontmatterStr = frontmatterMatch[1] ?? "";
+  const prompt = (frontmatterMatch[2] ?? "").trim();
   const frontmatter: Record<string, string> = {};
 
   // Parse YAML-like frontmatter (simple key: value format)
@@ -142,7 +142,7 @@ export function parseTeamsYaml(content: string): PredefinedTeam[] {
       // Agent entry (indented line starting with -)
       const agentMatch = line.match(/^\s*-\s*(.+)$/);
       if (agentMatch) {
-        currentTeam.agents.push(agentMatch[1].trim());
+        currentTeam.agents.push((agentMatch[1] ?? "").trim());
       }
     }
   }
@@ -336,7 +336,7 @@ export function generateTeamsYamlWithTemplate(
   let templateStartLine = -1;
 
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim() === `${templateName}:`) {
+    if ((lines[i] ?? "").trim() === `${templateName}:`) {
       templateExists = true;
       templateStartLine = i;
       break;
@@ -346,7 +346,7 @@ export function generateTeamsYamlWithTemplate(
   if (templateExists) {
     // Replace existing template - find where it ends
     let templateEndLine = templateStartLine + 1;
-    while (templateEndLine < lines.length && (lines[templateEndLine].startsWith("  ") || lines[templateEndLine].startsWith("\t"))) {
+    while (templateEndLine < lines.length && ((lines[templateEndLine] ?? "").startsWith("  ") || (lines[templateEndLine] ?? "").startsWith("\t"))) {
       templateEndLine++;
     }
     // Remove old template lines
@@ -368,7 +368,7 @@ export function generateTeamsYamlWithTemplate(
   let insertIndex = lines.length;
   
   // Remove trailing empty lines to find actual end
-  while (insertIndex > 0 && lines[insertIndex - 1].trim() === "") {
+  while (insertIndex > 0 && (lines[insertIndex - 1] ?? "").trim() === "") {
     insertIndex--;
   }
 
