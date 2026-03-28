@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.62.0",
+  "lastChangelogVersion": "0.63.1",
   "hideThinkingBlock": false,
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.4",
@@ -37,7 +37,8 @@
     },
     "https://github.com/denismrvoljak/pi-tutor",
     "git:https://github.com/calesennett/pi-codex-fast",
-    "C:\\Users\\niel\\.pi\\agent\\extensions\\pi-teams"
+    "C:\\Users\\niel\\.pi\\agent\\extensions\\pi-teams",
+    "npm:pi-verbosity-control"
   ],
   "extensions": [
     "-extensions\\theme-cycle\\index.ts",
@@ -106,8 +107,8 @@
     "enabled": false
   },
   "enableSkillCommands": true,
-  "steeringMode": "all",
-  "followUpMode": "all",
+  "steeringMode": "one-at-a-time",
+  "followUpMode": "one-at-a-time",
   "prompts": [
     "+prompts\\dot-commit.md"
   ],
