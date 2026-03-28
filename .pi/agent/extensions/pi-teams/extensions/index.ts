@@ -6,7 +6,7 @@ import * as teams from "../src/utils/teams";
 import * as tasks from "../src/utils/tasks";
 import * as messaging from "../src/utils/messaging";
 import * as runtime from "../src/utils/runtime";
-import type { Member } from "../src/utils/models";
+import type { Member, TeamConfig } from "../src/utils/models";
 import { getTerminalAdapter } from "../src/adapters/terminal-registry";
 import * as predefined from "../src/utils/predefined-teams";
 import * as path from "node:path";
@@ -492,6 +492,73 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
+  pi.on("session_shutdown", async () => {
+    if (!isTeammate || !teamName) return;
+
+    const pidFile = path.join(paths.teamDir(teamName), `${agentName}.pid`);
+    try {
+      if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
+    } catch {}
+
+    try {
+      await runtime.deleteRuntimeStatus(teamName, agentName);
+    } catch {}
+
+    try {
+      await teams.updateMember(teamName, agentName, {
+        tmuxPaneId: "",
+        windowId: undefined,
+        isActive: false,
+      });
+    } catch {}
+  });
+
+  function buildPiCommand(model?: string, thinking?: Member["thinking"]): string {
+    const piBinary = getPiLaunchCommand();
+
+    if (model) {
+      let cmd = `${piBinary} --model ${model}`;
+      if (thinking) cmd += ` --thinking ${thinking}`;
+      return cmd;
+    }
+
+    if (thinking) {
+      return `${piBinary} --thinking ${thinking}`;
+    }
+
+    return piBinary;
+  }
+
+  function isMemberAlive(teamName: string, member: Member): boolean {
+    const pidFile = path.join(paths.teamDir(teamName), `${member.name}.pid`);
+    if (fs.existsSync(pidFile)) {
+      try {
+        const pid = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
+        if (!Number.isNaN(pid) && isPidAlive(pid)) {
+          return true;
+        }
+      } catch {}
+    }
+
+    if (member.windowId && terminal) {
+      return terminal.isWindowAlive(member.windowId);
+    }
+
+    if (member.tmuxPaneId && terminal) {
+      return terminal.isAlive(member.tmuxPaneId);
+    }
+
+    return false;
+  }
+
+  async function markMemberStopped(teamName: string, memberName: string) {
+    await teams.updateMember(teamName, memberName, {
+      tmuxPaneId: "",
+      windowId: undefined,
+      isActive: false,
+    });
+  }
+
   async function killTeammate(teamName: string, member: Member) {
     if (member.name === "team-lead") return;
 
@@ -501,7 +568,7 @@ export default function (pi: ExtensionAPI) {
         const pid = fs.readFileSync(pidFile, "utf-8").trim();
         process.kill(parseInt(pid), "SIGKILL");
         fs.unlinkSync(pidFile);
-      } catch (e) {
+      } catch {
         // ignore
       }
     }
@@ -515,6 +582,65 @@ export default function (pi: ExtensionAPI) {
     }
 
     await runtime.deleteRuntimeStatus(teamName, member.name);
+  }
+
+  async function spawnMemberProcess(teamConfig: TeamConfig, member: Member, forceSeparateWindow?: boolean) {
+    if (!terminal) {
+      throw new Error("No terminal adapter detected.");
+    }
+
+    const useSeparateWindow = forceSeparateWindow ?? (member.backendType === "window"
+      ? true
+      : member.backendType === "pane"
+        ? false
+        : (teamConfig.separateWindows ?? false));
+
+    if (useSeparateWindow && !terminal.supportsWindows()) {
+      throw new Error(`Separate windows mode is not supported in ${terminal.name}.`);
+    }
+
+    const piCmd = buildPiCommand(member.model, member.thinking);
+    const env: Record<string, string> = {
+      ...process.env,
+      PI_TEAM_NAME: teamConfig.name,
+      PI_AGENT_NAME: member.name,
+    };
+
+    let terminalId = "";
+    let isWindow = false;
+
+    if (useSeparateWindow) {
+      isWindow = true;
+      terminalId = terminal.spawnWindow({
+        name: member.name,
+        cwd: member.cwd,
+        command: piCmd,
+        env,
+        teamName: teamConfig.name,
+      });
+    } else {
+      const leadMember = teamConfig.members.find(m => m.name === "team-lead");
+      const anchorPaneId = terminal.name === "tmux"
+        ? leadMember?.tmuxPaneId || process.env.TMUX_PANE || undefined
+        : undefined;
+
+      terminalId = terminal.spawn({
+        name: member.name,
+        cwd: member.cwd,
+        command: piCmd,
+        env,
+        anchorPaneId,
+      });
+    }
+
+    await teams.updateMember(teamConfig.name, member.name, {
+      tmuxPaneId: isWindow ? "" : terminalId,
+      windowId: isWindow ? terminalId : undefined,
+      backendType: isWindow ? "window" : "pane",
+      isActive: true,
+    });
+
+    return { terminalId, isWindow };
   }
 
   // Tools
@@ -606,9 +732,6 @@ export default function (pi: ExtensionAPI) {
       }
 
       const useSeparateWindow = params.separate_window ?? teamConfig.separateWindows ?? false;
-      if (useSeparateWindow && !terminal.supportsWindows()) {
-        throw new Error(`Separate windows mode is not supported in ${terminal.name}.`);
-      }
 
       const member: Member = {
         agentId: `${safeName}@${safeTeamName}`,
@@ -623,60 +746,20 @@ export default function (pi: ExtensionAPI) {
         color: "blue",
         thinking: params.thinking,
         planModeRequired: params.plan_mode_required,
+        backendType: useSeparateWindow ? "window" : "pane",
+        isActive: true,
       };
 
       await teams.addMember(safeTeamName, member);
       await messaging.sendPlainMessage(safeTeamName, "team-lead", safeName, params.prompt, "Initial prompt");
 
-      const piBinary = getPiLaunchCommand();
-      let piCmd = piBinary;
-
-      if (chosenModel) {
-        piCmd = `${piBinary} --model ${chosenModel}`;
-        if (params.thinking) {
-          piCmd += ` --thinking ${params.thinking}`;
-        }
-      } else if (params.thinking) {
-        piCmd = `${piBinary} --thinking ${params.thinking}`;
-      }
-
-      const env: Record<string, string> = {
-        ...process.env,
-        PI_TEAM_NAME: safeTeamName,
-        PI_AGENT_NAME: safeName,
-      };
-
       let terminalId = "";
       let isWindow = false;
 
       try {
-        if (useSeparateWindow) {
-          isWindow = true;
-          terminalId = terminal.spawnWindow({
-            name: safeName,
-            cwd: params.cwd,
-            command: piCmd,
-            env: env,
-            teamName: safeTeamName,
-          });
-          await teams.updateMember(safeTeamName, safeName, { windowId: terminalId });
-        } else {
-          const leadMember = teamConfig.members.find(m => m.name === "team-lead");
-          const anchorPaneId = terminal.name === "tmux"
-            ? leadMember?.tmuxPaneId || process.env.TMUX_PANE || undefined
-            : undefined;
-
-          terminalId = terminal.spawn({
-            name: safeName,
-            cwd: params.cwd,
-            command: piCmd,
-            env: env,
-            anchorPaneId,
-          });
-          await teams.updateMember(safeTeamName, safeName, { tmuxPaneId: terminalId });
-        }
+        ({ terminalId, isWindow } = await spawnMemberProcess(teamConfig, member, useSeparateWindow));
       } catch (e) {
-        throw new Error(`Failed to spawn ${terminal.name} ${isWindow ? 'window' : 'pane'}: ${e}`);
+        throw new Error(`Failed to spawn ${terminal.name} ${useSeparateWindow ? 'window' : 'pane'}: ${e}`);
       }
 
       return {
@@ -880,9 +963,124 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "team_stop",
+    label: "Stop Team (keep state)",
+    description: "Stop all teammate processes and close their panes/windows, but keep team config, inboxes, and tasks so the team can be resumed later. Use this for close, stop, pause, suspend, or dismiss-the-team-for-now requests.",
+    promptGuidelines: [
+      "Use this tool when the user wants to close, stop, pause, suspend, or dismiss a team for now but keep its saved state.",
+      "After calling this tool, the team should still appear in list_runtime_teams and can be brought back with team_resume.",
+    ],
+    parameters: objectSchema({
+      team_name: Type.String(),
+    }),
+    async execute(toolCallId, params: any, signal, onUpdate, ctx) {
+      const safeTeamName = paths.sanitizeName(params.team_name);
+      const config = await teams.readConfig(safeTeamName);
+      const stopped: string[] = [];
+      const alreadyStopped: string[] = [];
+
+      for (const member of config.members) {
+        if (member.name === "team-lead") continue;
+
+        if (isMemberAlive(safeTeamName, member)) {
+          await killTeammate(safeTeamName, member);
+          stopped.push(member.name);
+        } else {
+          await runtime.deleteRuntimeStatus(safeTeamName, member.name);
+          const pidFile = path.join(paths.teamDir(safeTeamName), `${member.name}.pid`);
+          try {
+            if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
+          } catch {}
+          alreadyStopped.push(member.name);
+        }
+
+        await markMemberStopped(safeTeamName, member.name);
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: `Team ${safeTeamName} stopped. Stopped ${stopped.length} teammate(s).${alreadyStopped.length > 0 ? ` ${alreadyStopped.length} already inactive.` : ""}`,
+        }],
+        details: { stopped, alreadyStopped },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "team_resume",
+    label: "Resume Team",
+    description: "Resume a stopped team by respawning any inactive or dead teammates from saved team config.",
+    promptGuidelines: [
+      "Use this tool to bring back a team that was previously stopped with team_stop.",
+      "Do not use this tool for creating a new team.",
+    ],
+    parameters: objectSchema({
+      team_name: Type.String(),
+    }),
+    async execute(toolCallId, params: any, signal, onUpdate, ctx) {
+      const safeTeamName = paths.sanitizeName(params.team_name);
+      if (!terminal) {
+        throw new Error("No terminal adapter detected.");
+      }
+
+      const config = await teams.readConfig(safeTeamName);
+      registerLeadSession(safeTeamName);
+      teamName = safeTeamName;
+      startLeadInboxPolling();
+
+      const resumed: string[] = [];
+      const alreadyRunning: string[] = [];
+      const skipped: Array<{ name: string; error: string }> = [];
+
+      for (const member of config.members) {
+        if (member.name === "team-lead") continue;
+
+        if (isMemberAlive(safeTeamName, member)) {
+          alreadyRunning.push(member.name);
+          continue;
+        }
+
+        if (!member.prompt || !member.cwd) {
+          skipped.push({ name: member.name, error: "Missing saved prompt or cwd" });
+          continue;
+        }
+
+        try {
+          const pidFile = path.join(paths.teamDir(safeTeamName), `${member.name}.pid`);
+          try {
+            if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
+          } catch {}
+          await runtime.deleteRuntimeStatus(safeTeamName, member.name);
+          await spawnMemberProcess(config, member);
+          resumed.push(member.name);
+        } catch (e) {
+          skipped.push({ name: member.name, error: String(e) });
+        }
+      }
+
+      const skippedText = skipped.length > 0
+        ? ` Skipped ${skipped.length}: ${skipped.map(s => `${s.name} (${s.error})`).join(", ")}.`
+        : "";
+
+      return {
+        content: [{
+          type: "text",
+          text: `Team ${safeTeamName} resumed. Respawned ${resumed.length} teammate(s).${alreadyRunning.length > 0 ? ` ${alreadyRunning.length} already running.` : ""}${skippedText}`,
+        }],
+        details: { resumed, alreadyRunning, skipped },
+      };
+    },
+  });
+
+  pi.registerTool({
     name: "team_shutdown",
-    label: "Shutdown Team",
-    description: "Shutdown the entire team and close all panes/windows.",
+    label: "Delete Team (permanent)",
+    description: "Permanently delete the entire team. This kills teammate processes, closes panes/windows, removes the saved team config from ~/.pi/teams, and deletes team tasks. Use this only when the user wants permanent removal, not a temporary close.",
+    promptGuidelines: [
+      "Use this tool only for permanent deletion of a team and its saved state.",
+      "If the user says close, stop, pause, suspend, or keep the team for later, use team_stop instead.",
+    ],
     parameters: objectSchema({
       team_name: Type.String(),
     }),
@@ -987,12 +1185,7 @@ export default function (pi: ExtensionAPI) {
       const member = config.members.find(m => m.name === params.agent_name);
       if (!member) throw new Error(`Teammate ${params.agent_name} not found`);
 
-      let alive = false;
-      if (member.windowId && terminal) {
-        alive = terminal.isWindowAlive(member.windowId);
-      } else if (member.tmuxPaneId && terminal) {
-        alive = terminal.isAlive(member.tmuxPaneId);
-      }
+      const alive = isMemberAlive(params.team_name, member);
 
       const unreadCount = (await messaging.readInbox(params.team_name, params.agent_name, true, false)).length;
       const runtimeStatus = await runtime.readRuntimeStatus(params.team_name, params.agent_name);
@@ -1172,9 +1365,6 @@ export default function (pi: ExtensionAPI) {
           }
 
           const useSeparateWindow = params.separate_windows ?? config.separateWindows ?? false;
-          if (useSeparateWindow && !terminal.supportsWindows()) {
-            throw new Error(`Separate windows mode is not supported in ${terminal.name}.`);
-          }
 
           const member: Member = {
             agentId: `${safeName}@${safeTeamName}`,
@@ -1188,59 +1378,15 @@ export default function (pi: ExtensionAPI) {
             prompt: agentDef.prompt,
             color: "blue",
             thinking: agentDef.thinking,
+            backendType: useSeparateWindow ? "window" : "pane",
+            isActive: true,
           };
 
           await teams.addMember(safeTeamName, member);
           await messaging.sendPlainMessage(safeTeamName, "team-lead", safeName, agentDef.prompt, "Initial prompt from predefined team");
 
-          const piBinary = getPiLaunchCommand();
-          let piCmd = piBinary;
-
-          if (chosenModel) {
-            piCmd = `${piBinary} --model ${chosenModel}`;
-            if (agentDef.thinking) {
-              piCmd += ` --thinking ${agentDef.thinking}`;
-            }
-          } else if (agentDef.thinking) {
-            piCmd = `${piBinary} --thinking ${agentDef.thinking}`;
-          }
-
-          const env: Record<string, string> = {
-            ...process.env,
-            PI_TEAM_NAME: safeTeamName,
-            PI_AGENT_NAME: safeName,
-          };
-
-          let terminalId = "";
-          let isWindow = false;
-
           try {
-            if (useSeparateWindow) {
-              isWindow = true;
-              terminalId = terminal.spawnWindow({
-                name: safeName,
-                cwd: params.cwd,
-                command: piCmd,
-                env: env,
-                teamName: safeTeamName,
-              });
-              await teams.updateMember(safeTeamName, safeName, { windowId: terminalId });
-            } else {
-              const leadMember = (await teams.readConfig(safeTeamName)).members.find(m => m.name === "team-lead");
-              const anchorPaneId = terminal.name === "tmux"
-                ? leadMember?.tmuxPaneId || process.env.TMUX_PANE || undefined
-                : undefined;
-
-              terminalId = terminal.spawn({
-                name: safeName,
-                cwd: params.cwd,
-                command: piCmd,
-                env: env,
-                anchorPaneId,
-              });
-              await teams.updateMember(safeTeamName, safeName, { tmuxPaneId: terminalId });
-            }
-
+            await spawnMemberProcess(config, member, useSeparateWindow);
             spawnResults.push({ name: agentName, status: "spawned", error: undefined });
           } catch (e) {
             spawnResults.push({ name: agentName, status: "error", error: `Failed to spawn: ${e}` });
@@ -1326,7 +1472,7 @@ You can now use this template with:
   pi.registerTool({
     name: "list_runtime_teams",
     label: "List Runtime Teams",
-    description: "List all runtime team configurations that can be saved as templates. These are active or saved teams from ~/.pi/teams/.",
+    description: "List all runtime team configurations from ~/.pi/teams/ and report whether each team is running, stopped, or partially running.",
     parameters: objectSchema({}),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
       const runtimeTeams = predefined.listRuntimeTeams();
@@ -1338,16 +1484,47 @@ You can now use this template with:
         };
       }
 
-      const result = runtimeTeams.map(team => ({
-        name: team.name,
-        description: team.description,
-        memberCount: team.memberCount,
-        createdAt: team.createdAt ? new Date(team.createdAt).toISOString() : undefined,
+      const result = await Promise.all(runtimeTeams.map(async (team) => {
+        let activeCount = 0;
+        let inactiveCount = team.memberCount;
+        let state: "running" | "stopped" | "partially_running" | "empty" = team.memberCount === 0 ? "empty" : "stopped";
+
+        try {
+          const config = await teams.readConfig(team.name);
+          const teammates = config.members.filter(m => m.agentType === "teammate");
+          activeCount = teammates.filter(m => isMemberAlive(team.name, m)).length;
+          inactiveCount = Math.max(0, teammates.length - activeCount);
+
+          if (teammates.length === 0) {
+            state = "empty";
+          } else if (activeCount === 0) {
+            state = "stopped";
+          } else if (activeCount === teammates.length) {
+            state = "running";
+          } else {
+            state = "partially_running";
+          }
+        } catch {
+          // Keep fallback values from runtimeTeams listing
+        }
+
+        return {
+          name: team.name,
+          description: team.description,
+          memberCount: team.memberCount,
+          activeCount,
+          inactiveCount,
+          state,
+          createdAt: team.createdAt ? new Date(team.createdAt).toISOString() : undefined,
+        };
       }));
 
-      const summary = result.map(t => 
-        `- ${t.name}: ${t.memberCount} teammate(s)${t.description ? ` - ${t.description}` : ""}`
-      ).join("\n");
+      const summary = result.map(t => {
+        const counts = t.memberCount > 0
+          ? ` (${t.activeCount}/${t.memberCount} active)`
+          : "";
+        return `- ${t.name}: ${t.state}${counts}${t.description ? ` - ${t.description}` : ""}`;
+      }).join("\n");
 
       return {
         content: [{ type: "text", text: `Runtime teams:\n${summary}` }],
