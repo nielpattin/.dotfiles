@@ -1,4 +1,5 @@
 ---
+name: teams
 description: Coordinate multiple agents working on a project using shared task lists and messaging via tmux or Zellij.
 ---
 
@@ -27,10 +28,10 @@ Coordinate multiple agents working on a project using shared task lists and mess
 When you are spawned as a teammate:
 - Your status bar will show "Teammate: name @ team".
 - You will automatically start by calling `read_inbox` to get your initial instructions.
-- Regularly check `read_inbox` for updates from the lead.
 - Use `send_message` to "team-lead" to report progress or ask questions.
 - Update your assigned tasks using `task_update`.
-- If you are idle for more than 30 seconds, you will automatically check your inbox for new messages.
+- If you are idle for more than 30 seconds, the extension will automatically check your inbox for new messages.
+- Do not manually poll with repeated `read_inbox` calls or `sleep` loops while waiting for updates.
 
 ## Best Practices for Teammates
 
@@ -38,7 +39,7 @@ When you are spawned as a teammate:
 - **Frequent Communication**: Send short summaries of your work back to `team-lead` frequently.
 - **Context Matters**: When you finish a task, send a message explaining your results and any new files you created.
 - **Independence**: If you get stuck, try to solve it yourself first, but don't hesitate to ask `team-lead` for clarification.
-- **Orderly Shutdown**: When you've finished all your work and have no more instructions, notify the lead and wait for shutdown approval.
+- **Orderly Shutdown**: When you've finished all your work and have no more instructions, notify the lead and stop. The extension will wake you automatically if a new message arrives.
 
 ## Best Practices for Team Leads
 

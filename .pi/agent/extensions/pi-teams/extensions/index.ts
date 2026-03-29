@@ -487,7 +487,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       return {
-        systemPrompt: event.systemPrompt + `\n\nYou are teammate '${agentName}' on team '${teamName}'.\nYour lead is 'team-lead'.${modelInfo}\nStart by calling read_inbox(team_name="${teamName}") to get your initial instructions.`,
+        systemPrompt: event.systemPrompt + `\n\nYou are teammate '${agentName}' on team '${teamName}'.\nYour lead is 'team-lead'.${modelInfo}\nStart by calling read_inbox(team_name="${teamName}") once to get your initial instructions. After that, work from the inbox contents. When you send a progress or completion update to team-lead, end your turn. Do not manually poll with repeated read_inbox calls or sleep loops while waiting. The extension will automatically wake you when new unread inbox messages arrive.`,
       };
     }
   });
@@ -806,6 +806,10 @@ export default function (pi: ExtensionAPI) {
     name: "send_message",
     label: "Send Message",
     description: "Send a message to a teammate.",
+    promptGuidelines: [
+      "After sending a progress or completion update and waiting for a reply, stop and let the extension's automatic inbox polling wake the teammate later.",
+      "Do not follow send_message with manual read_inbox polling loops or sleep commands unless the user explicitly asks for that behavior.",
+    ],
     parameters: objectSchema({
       team_name: Type.String(),
       recipient: Type.String(),
@@ -844,6 +848,10 @@ export default function (pi: ExtensionAPI) {
     name: "read_inbox",
     label: "Read Inbox",
     description: "Read messages from an agent's inbox.",
+    promptGuidelines: [
+      "For teammates, use this once at startup or when you have a concrete reason to believe unread messages exist.",
+      "Do not use this tool in manual polling loops. Teammates are automatically woken by the extension's 30-second idle inbox polling.",
+    ],
     parameters: objectSchema({
       team_name: Type.String(),
       agent_name: Type.Optional(Type.String({ description: "Whose inbox to read. Defaults to your own." })),
@@ -851,7 +859,8 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
       const targetAgent = params.agent_name || agentName;
-      const msgs = await messaging.readInbox(params.team_name, targetAgent, params.unread_only);
+      const unreadOnly = params.unread_only ?? true;
+      const msgs = await messaging.readInbox(params.team_name, targetAgent, unreadOnly);
 
       if (isTeammate && teamName && params.team_name === teamName && targetAgent === agentName) {
         await runtime.writeRuntimeStatus(teamName, agentName, {
@@ -965,9 +974,10 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "team_stop",
     label: "Stop Team (keep state)",
-    description: "Stop all teammate processes and close their panes/windows, but keep team config, inboxes, and tasks so the team can be resumed later. Use this for close, stop, pause, suspend, or dismiss-the-team-for-now requests.",
+    description: "Stop all teammate processes and close their panes/windows, but keep team config, inboxes, and tasks so the team can be resumed later. Use this for close, stop, pause, suspend, or keep-for-later requests.",
     promptGuidelines: [
-      "Use this tool when the user wants to close, stop, pause, suspend, or dismiss a team for now but keep its saved state.",
+      "Use this tool when the user wants to close, stop, pause, suspend, or keep a team for later while preserving its saved state.",
+      "Do not use this tool when the user explicitly asks to shut down, delete, remove, destroy, or permanently close the team.",
       "After calling this tool, the team should still appear in list_runtime_teams and can be brought back with team_resume.",
     ],
     parameters: objectSchema({
@@ -1076,9 +1086,9 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "team_shutdown",
     label: "Delete Team (permanent)",
-    description: "Permanently delete the entire team. This kills teammate processes, closes panes/windows, removes the saved team config from ~/.pi/teams, and deletes team tasks. Use this only when the user wants permanent removal, not a temporary close.",
+    description: "Permanently delete the entire team. This kills teammate processes, closes panes/windows, removes the saved team config from ~/.pi/teams, and deletes team tasks. Use this when the user explicitly asks to shut down, delete, remove, destroy, or permanently close the team.",
     promptGuidelines: [
-      "Use this tool only for permanent deletion of a team and its saved state.",
+      "Use this tool when the user explicitly asks to shut down, delete, remove, destroy, or permanently close the team.",
       "If the user says close, stop, pause, suspend, or keep the team for later, use team_stop instead.",
     ],
     parameters: objectSchema({
