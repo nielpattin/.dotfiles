@@ -24,111 +24,8 @@ function ff($name) {
     }
 }
 
-function dot {
-    git --git-dir=$HOME\.dotfiles --work-tree=$HOME @Args
-}
-
-function dot-ui {
-    $fork = "$env:LOCALAPPDATA\Fork\current\Fork.exe"
-    if (-not (Test-Path $fork)) {
-        Write-Error "Fork not found: $fork"
-        return
-    }
-
-    Start-Process -FilePath $fork -ArgumentList "$HOME" -Environment @{
-        GIT_DIR       = "$HOME\.dotfiles"
-        GIT_WORK_TREE = "$HOME"
-        GIT_OPTIONAL_LOCKS = "0"
-    }
-}
-
-# Wrapper for `pi` that ensures the dotfiles bare-repo env is set, then restores it after running.
-# Examples:
-#   dot-pi
-#   dot-pi -c
-#   dot-pi --model anthropic/claude-sonnet-4
-#   dot-pi -c --model anthropic/claude-sonnet-4
-# For normal usage in other folders, use plain `pi`.
-function dot-pi {
-    param(
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [string[]]$PiArgs
-    )
-
-    $oldGitDir = $env:GIT_DIR
-    $oldWorkTree = $env:GIT_WORK_TREE
-    $oldLocks = $env:GIT_OPTIONAL_LOCKS
-
-    try {
-        $env:GIT_DIR = "$HOME\.dotfiles"
-        $env:GIT_WORK_TREE = "$HOME"
-        # $env:GIT_OPTIONAL_LOCKS = "0"
-        Set-Location $HOME
-        & pi @PiArgs
-    }
-    finally {
-        if ($null -eq $oldGitDir) {
-            Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue
-        }
-        else {
-            $env:GIT_DIR = $oldGitDir
-        }
-
-        if ($null -eq $oldWorkTree) {
-            Remove-Item Env:GIT_WORK_TREE -ErrorAction SilentlyContinue
-        }
-        else {
-            $env:GIT_WORK_TREE = $oldWorkTree
-        }
-
-        if ($null -eq $oldLocks) {
-            Remove-Item Env:GIT_OPTIONAL_LOCKS -ErrorAction SilentlyContinue
-        }
-        else {
-            $env:GIT_OPTIONAL_LOCKS = $oldLocks
-        }
-    }
-}
-
 function dot-code {
-    param(
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [string[]]$CodeArgs
-    )
-
-    $oldGitDir = $env:GIT_DIR
-    $oldWorkTree = $env:GIT_WORK_TREE
-    $oldLocks = $env:GIT_OPTIONAL_LOCKS
-
-    try {
-        $env:GIT_DIR = "$HOME\.dotfiles"
-        $env:GIT_WORK_TREE = "$HOME"
-        # $env:GIT_OPTIONAL_LOCKS = "0" # Code doesn't do git operations, so locks shouldn't be an issue, and setting this can cause problems with other git processes. Leaving it unchanged.
-        Set-Location $HOME
-        & code @CodeArgs .
-    }
-    finally {
-        if ($null -eq $oldGitDir) {
-            Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue
-        }
-        else {
-            $env:GIT_DIR = $oldGitDir
-        }
-
-        if ($null -eq $oldWorkTree) {
-            Remove-Item Env:GIT_WORK_TREE -ErrorAction SilentlyContinue
-        }
-        else {
-            $env:GIT_WORK_TREE = $oldWorkTree
-        }
-
-        if ($null -eq $oldLocks) {
-            Remove-Item Env:GIT_OPTIONAL_LOCKS -ErrorAction SilentlyContinue
-        }
-        else {
-            $env:GIT_OPTIONAL_LOCKS = $oldLocks
-        }
-    }
+    code $HOME
 }
 
 function Get-PubIP { (Invoke-WebRequest http://ifconfig.me/ip).Content }
@@ -231,37 +128,6 @@ Set-PSReadLineOption -AddToHistoryHandler {
 # OpenCode Environment Variables
 $env:OPENCODE_ENABLE_EXA = "1"
 $env:OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
-
-#oc = open code binary
-# Set-Alias -Name oc -Value ocb
-Set-Alias -Name oc -Value opencode.cmd
-
-# po = local pi build (repo dist)
-function po {
-    & node "$HOME/repo/pi-mono/packages/coding-agent/dist/cli.js" @args
-}
-
-# ocb = local build binary
-function ocb {
-    & "$HOME/repo/anomalyco/opencode/packages/opencode/dist/opencode-windows-x64/bin/opencode.exe" @args
-}
-
-# oc-dev = dev mode (bun dev)
-function oc-dev {
-    $original_dir = Get-Location
-    Push-Location "$HOME/repo/anomalyco/opencode/packages/opencode"
-    try {
-        if ($args.Count -eq 0) {
-            bun dev $original_dir
-        }
-        else {
-            bun dev @args
-        }
-    }
-    finally {
-        Pop-Location
-    }
-}
 
 function bash {
      & "C:\Program Files\Git\bin\bash.exe" @args

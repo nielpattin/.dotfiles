@@ -4,12 +4,17 @@ This is some normal Windows dotfile lol, nothing to see here...
 
 ## Setup
 
-Use your `dot` function/alias (preferred), or equivalent Git command:
+Use the wrapper scripts in `~/.local/bin` so `dot` works in both pwsh and Git Bash:
 
-```ps1
-function dot {
-    git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" $args
-}
+- `C:\Users\niel\.local\bin\dot.cmd`
+- `C:\Users\niel\.local\bin\dot`
+
+They both run the bare repo with `$HOME` as the work tree.
+
+```bash
+dot status
+dot add -u
+dot commit -m "chore(dotfiles): update config"
 ```
 
 ## Workflow daily usage:
@@ -26,6 +31,38 @@ dot push
 ```bash
 git clone --bare <your-repo-url> "$HOME/.dotfiles"
 git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" checkout
+```
+
+Then make local tools like VS Code see the repo from `$HOME`:
+
+```pwsh
+"gitdir: $($HOME -replace '\\','/')/.dotfiles" | Set-Content "$HOME/.git"
+
+dot config core.bare false
+dot config core.worktree "$HOME"
+dot config status.showUntrackedFiles no
+```
+
+## VS Code setup
+
+No workspace file is needed.
+
+1. In VS Code user settings, set:
+
+```json
+"git.openRepositoryInParentFolders": "always"
+```
+
+2. Open the dotfiles repo by opening `$HOME`:
+
+```pwsh
+code $HOME
+```
+
+or use your helper:
+
+```pwsh
+dot-code
 ```
 
 ## Pre-winget setup
