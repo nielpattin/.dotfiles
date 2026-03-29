@@ -70,7 +70,8 @@
     "-extensions\\diff-renderer\\index.ts",
     "+extensions\\tool-selector\\index.ts",
     "-extensions\\powerline-footer\\index.ts",
-    "-extensions\\skills\\index.ts"
+    "-extensions\\skills\\index.ts",
+    "-extensions\\pwsh\\index.ts"
   ],
   "themes": [
     "-themes\\cyberpunk.json",
