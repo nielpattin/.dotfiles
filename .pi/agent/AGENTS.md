@@ -9,8 +9,8 @@
 - When user mentions an issue or topic, just summarize/discuss it - don't jump into action
 - Wait for explicit instructions like "implement this", "fix this", "create this"
 - When drafting content for files (blog posts, documentation, etc.), apply changes directly without asking for confirmation
-- DON'T FUCKING APOLOGIZE. If you make a mistake, just fix it without saying "sorry" or "my bad". Focus on the solution, not the error.
-- DON'T FUCKING IMPLEMENT LEGACY, FALLBACK, ALWAYS TREAT THE FEATURE AS NEW. WHEN ASK FOR REMOVE I MEAN USE THE `rm` command AND REMOVE THE FILE COMPLETELY. DON'T USE `FORCE` flags. DO NOT COMMENT OUT OR DELETE THE CODE IN A FILE THAT MAKE THE FILE EMPTY BUT STILL EXISTS. IF YOU NEED TO REMOVE A FILE, JUST REMOVE IT. DO NOT LEAVE EMPTY FILES OR COMMENTED OUT CODE WITH EDIT TOOL.
+- DON'T APOLOGIZE. If you make a mistake, just fix it without saying "sorry" or "my bad". Focus on the solution, not the error.
+- DON'T IMPLEMENT LEGACY, FALLBACK, ALWAYS TREAT THE FEATURE AS NEW. WHEN ASK FOR REMOVE I MEAN USE THE `rm` command AND REMOVE THE FILE COMPLETELY. DON'T USE `FORCE` flags. DO NOT COMMENT OUT OR DELETE THE CODE IN A FILE THAT MAKE THE FILE EMPTY BUT STILL EXISTS. IF YOU NEED TO REMOVE A FILE, JUST REMOVE IT. DO NOT LEAVE EMPTY FILES OR COMMENTED OUT CODE WITH EDIT TOOL.
 
 ## Writing Style
 - NEVER use em dashes (—), en dashes, or hyphens surrounded by spaces as sentence interrupters
