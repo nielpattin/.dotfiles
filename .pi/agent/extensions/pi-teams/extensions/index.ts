@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
+import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import * as paths from "../src/utils/paths";
 import * as teams from "../src/utils/teams";
 import * as tasks from "../src/utils/tasks";
@@ -21,6 +22,89 @@ import { spawnSync } from "node:child_process";
 
 const objectSchema = (...args: any[]): any => (Type.Object as any)(...args);
 const enumSchema = (...args: any[]): any => (StringEnum as any)(...args);
+
+interface InboxRenderDetails {
+  teamName: string;
+  targetAgent: string;
+  unreadOnly: boolean;
+  messages: Array<{
+    from: string;
+    text: string;
+    timestamp: string;
+    read: boolean;
+    summary?: string;
+    color?: string;
+  }>;
+}
+
+function renderSingleLine(text: string) {
+  return {
+    render(width: number) {
+      return [truncateToWidth(text, width)];
+    },
+    invalidate() {},
+  };
+}
+
+function formatInboxTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+function summarizeInboxMessage(message: { summary?: string; text: string }): string {
+  const summary = message.summary?.trim();
+  if (summary) return summary;
+  const firstLine = message.text.split(/\r?\n/, 1)[0]?.trim() || "";
+  return firstLine || "(empty message)";
+}
+
+function buildInboxCollapsedText(details: InboxRenderDetails, theme: any): string {
+  const count = details.messages.length;
+  if (count === 0) {
+    return theme.fg("dim", "empty  ctrl+o expand");
+  }
+
+  const latest = details.messages[details.messages.length - 1]!;
+  const prefix = count === 1
+    ? "1 message from "
+    : `${count} messages, latest from `;
+  return [
+    theme.fg("muted", prefix),
+    theme.fg("accent", latest.from),
+    theme.fg("muted", ` at ${formatInboxTime(latest.timestamp)}`),
+    theme.fg("dim", "  ctrl+o expand"),
+  ].join("");
+}
+
+function buildInboxExpandedText(details: InboxRenderDetails, theme: any): string {
+  if (details.messages.length === 0) {
+    return theme.fg("dim", `No messages for ${details.targetAgent} on team '${details.teamName}'.`);
+  }
+
+  const lines: string[] = [];
+  lines.push(
+    theme.fg("toolTitle", theme.bold("read_inbox ")) +
+    theme.fg("muted", `${details.targetAgent} @ ${details.teamName}`)
+  );
+  lines.push(theme.fg("dim", details.unreadOnly ? "showing unread messages" : "showing all messages"));
+
+  details.messages.forEach((message, index) => {
+    lines.push("");
+    lines.push(
+      theme.fg("accent", `#${index + 1} ${message.from}`) +
+      theme.fg("muted", ` at ${formatInboxTime(message.timestamp)}`)
+    );
+    lines.push(theme.fg("dim", `summary: ${summarizeInboxMessage(message)}`));
+    if (message.text.trim()) {
+      lines.push(message.text);
+    }
+  });
+
+  return lines.join("\n");
+}
 
 /**
  * Build the command used to relaunch pi for teammate processes.
@@ -872,8 +956,29 @@ export default function (pi: ExtensionAPI) {
 
       return {
         content: [{ type: "text", text: JSON.stringify(msgs, null, 2) }],
-        details: { messages: msgs },
+        details: {
+          teamName: params.team_name,
+          targetAgent,
+          unreadOnly,
+          messages: msgs,
+        },
       };
+    },
+    renderCall(_args, theme) {
+      return renderSingleLine(theme.fg("toolTitle", theme.bold("read_inbox")));
+    },
+    renderResult(result, { expanded }, theme) {
+      const details = result.details as InboxRenderDetails | undefined;
+      if (!details) {
+        const text = result.content[0];
+        return new Text(text?.type === "text" ? text.text : "", 0, 0);
+      }
+
+      if (!expanded) {
+        return renderSingleLine(buildInboxCollapsedText(details, theme));
+      }
+
+      return new Text(buildInboxExpandedText(details, theme), 0, 0);
     },
   });
 

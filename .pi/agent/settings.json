@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.63.1",
+  "lastChangelogVersion": "0.63.2",
   "hideThinkingBlock": false,
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.4",
@@ -38,7 +38,8 @@
     "https://github.com/denismrvoljak/pi-tutor",
     "git:https://github.com/calesennett/pi-codex-fast",
     "C:\\Users\\niel\\.pi\\agent\\extensions\\pi-teams",
-    "npm:pi-verbosity-control"
+    "npm:pi-verbosity-control",
+    "npm:glimpseui"
   ],
   "extensions": [
     "-extensions\\theme-cycle\\index.ts",
@@ -53,7 +54,6 @@
     "-extensions\\code-ast\\index.ts",
     "-extensions\\command-palette\\index.ts",
     "-extensions\\image-preview\\index.ts",
-    "-extensions\\redraws.ts",
     "+extensions\\smart-sessions\\index.ts",
     "-extensions\\usage-extension\\index.ts",
     "-extensions\\you-are-right-killer.ts",
@@ -71,7 +71,8 @@
     "+extensions\\tool-selector\\index.ts",
     "-extensions\\powerline-footer\\index.ts",
     "-extensions\\skills\\index.ts",
-    "-extensions\\pwsh\\index.ts"
+    "-extensions\\pwsh\\index.ts",
+    "+extensions\\redraws.ts"
   ],
   "themes": [
     "-themes\\cyberpunk.json",
@@ -115,7 +116,7 @@
   ],
   "lazySkills": true,
   "npmCommand": [
-    "pnpm"
+    "npm"
   ],
   "compaction": {
     "enabled": false
