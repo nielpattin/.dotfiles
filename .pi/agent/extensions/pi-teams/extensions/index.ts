@@ -9,6 +9,11 @@ import * as runtime from "../src/utils/runtime";
 import type { Member, TeamConfig } from "../src/utils/models";
 import { getTerminalAdapter } from "../src/adapters/terminal-registry";
 import * as predefined from "../src/utils/predefined-teams";
+import {
+  buildInboxWakeupMessage,
+  buildLeadSystemPrompt,
+  buildTeammateSystemPrompt,
+} from "../src/utils/prompts";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -353,6 +358,7 @@ export default function (pi: ExtensionAPI) {
   let teamName = detectedTeamName;
 
   const terminal = getTerminalAdapter();
+  const IDLE_INBOX_POLL_INTERVAL_MS = 10000;
 
   // Track whether lead inbox polling has been started (to avoid duplicates)
   let leadPollingStarted = false;
@@ -373,13 +379,13 @@ export default function (pi: ExtensionAPI) {
         try {
           const unread = await messaging.readInbox(teamName, agentName, true, false);
           if (unread.length > 0) {
-            pi.sendUserMessage(`I have ${unread.length} new message(s) in my inbox. Reading them now...`, { deliverAs: "followUp" });
+            pi.sendUserMessage(buildInboxWakeupMessage(teamName, unread.length), { deliverAs: "followUp" });
           }
         } catch {
           // Ignore errors for lead polling
         }
       }
-    }, 30000);
+    }, IDLE_INBOX_POLL_INTERVAL_MS);
   }
 
   pi.on("session_start", async (_event, ctx) => {
@@ -414,7 +420,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       setTimeout(() => {
-        pi.sendUserMessage(`I am starting my work as '${agentName}' on team '${teamName}'. Checking my inbox for instructions...`, { deliverAs: "followUp" });
+        pi.sendUserMessage(`I am starting my work as '${agentName}' on team '${teamName}'. Checking my inbox for any follow-up messages...`, { deliverAs: "followUp" });
       }, 1000);
 
       // Inbox polling for teammates
@@ -427,7 +433,7 @@ export default function (pi: ExtensionAPI) {
                 lastHeartbeatAt: Date.now(),
               });
               if (unread.length > 0) {
-                pi.sendUserMessage(`I have ${unread.length} new message(s) in my inbox. Reading them now...`, { deliverAs: "followUp" });
+                pi.sendUserMessage(buildInboxWakeupMessage(teamName!, unread.length), { deliverAs: "followUp" });
               }
             } catch (e) {
               await runtime.writeRuntimeStatus(teamName!, agentName, {
@@ -436,7 +442,7 @@ export default function (pi: ExtensionAPI) {
               });
             }
           }
-        }, 30000);
+        }, IDLE_INBOX_POLL_INTERVAL_MS);
       }
     } else if (teamName) {
       // Lead reconnecting to an existing team
@@ -459,37 +465,31 @@ export default function (pi: ExtensionAPI) {
   });
 
   let firstTurn = true;
-  pi.on("before_agent_start", async (event, ctx) => {
-    if (isTeammate && firstTurn) {
-      firstTurn = false;
+  pi.on("before_agent_start", async (event, _ctx) => {
+    if (!firstTurn || !teamName) return;
+    firstTurn = false;
 
-      if (teamName) {
-        await runtime.writeRuntimeStatus(teamName, agentName, {
-          lastHeartbeatAt: Date.now(),
-        });
-      }
+    if (isTeammate) {
+      await runtime.writeRuntimeStatus(teamName, agentName, {
+        lastHeartbeatAt: Date.now(),
+      });
 
-      let modelInfo = "";
-      if (teamName) {
-        try {
-          const teamConfig = await teams.readConfig(teamName);
-          const member = teamConfig.members.find(m => m.name === agentName);
-          if (member && member.model) {
-            modelInfo = `\nYou are currently using model: ${member.model}`;
-            if (member.thinking) {
-              modelInfo += ` with thinking level: ${member.thinking}`;
-            }
-            modelInfo += `. When reporting your model or thinking level, use these exact values.`;
-          }
-        } catch (e) {
-          // Ignore
-        }
+      let member: Member | undefined;
+      try {
+        const teamConfig = await teams.readConfig(teamName);
+        member = teamConfig.members.find(m => m.name === agentName);
+      } catch {
+        // Ignore missing team config during startup.
       }
 
       return {
-        systemPrompt: event.systemPrompt + `\n\nYou are teammate '${agentName}' on team '${teamName}'.\nYour lead is 'team-lead'.${modelInfo}\nStart by calling read_inbox(team_name="${teamName}") once to get your initial instructions. After that, work from the inbox contents. When you send a progress or completion update to team-lead, end your turn. Do not manually poll with repeated read_inbox calls or sleep loops while waiting. The extension will automatically wake you when new unread inbox messages arrive.`,
+        systemPrompt: buildTeammateSystemPrompt(event.systemPrompt, teamName, agentName, member),
       };
     }
+
+    return {
+      systemPrompt: buildLeadSystemPrompt(event.systemPrompt, teamName),
+    };
   });
 
   pi.on("session_shutdown", async () => {
@@ -751,7 +751,6 @@ export default function (pi: ExtensionAPI) {
       };
 
       await teams.addMember(safeTeamName, member);
-      await messaging.sendPlainMessage(safeTeamName, "team-lead", safeName, params.prompt, "Initial prompt");
 
       let terminalId = "";
       let isWindow = false;
@@ -850,7 +849,7 @@ export default function (pi: ExtensionAPI) {
     description: "Read messages from an agent's inbox.",
     promptGuidelines: [
       "For teammates, use this once at startup or when you have a concrete reason to believe unread messages exist.",
-      "Do not use this tool in manual polling loops. Teammates are automatically woken by the extension's 30-second idle inbox polling.",
+      "Do not use this tool in manual polling loops. Teammates are automatically woken by the extension's 10-second idle inbox polling.",
     ],
     parameters: objectSchema({
       team_name: Type.String(),
@@ -1393,7 +1392,6 @@ export default function (pi: ExtensionAPI) {
           };
 
           await teams.addMember(safeTeamName, member);
-          await messaging.sendPlainMessage(safeTeamName, "team-lead", safeName, agentDef.prompt, "Initial prompt from predefined team");
 
           try {
             await spawnMemberProcess(config, member, useSeparateWindow);

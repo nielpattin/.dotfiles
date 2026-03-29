@@ -431,7 +431,7 @@ When a teammate is spawned, they automatically:
 
 ### Idle Polling
 
-If a teammate is idle (has no active work), they automatically check for new messages every **30 seconds**.
+If a teammate is idle (has no active work), they automatically check for new messages every **10 seconds**.
 
 This ensures teammates stay responsive to new tasks, messages, and task reassignments without manual intervention.
 
@@ -646,7 +646,7 @@ rm ~/.pi/teams/my-team/.lock
 
 ### Idle Polling Overhead
 
-Teammates poll their inboxes every 30 seconds when idle. This is minimal overhead (one file read per poll).
+Teammates poll their inboxes every 10 seconds when idle. This is minimal overhead (one file read per poll).
 
 ### Lock Timeout
 

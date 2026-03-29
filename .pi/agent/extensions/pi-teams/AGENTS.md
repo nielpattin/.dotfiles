@@ -41,7 +41,7 @@ A centralized source of truth for the entire team:
 Communication flows naturally between team members:
 - **Direct Messaging**: Send specific instructions to one teammate.
 - **Broadcasts**: Announce global changes (like API updates) to everyone at once.
-- **Inbox Polling**: Teammates automatically "wake up" to check for new work every 30 seconds when idle.
+- **Inbox Polling**: Teammates automatically "wake up" to check for new work every 10 seconds when idle.
 
 ### 🛡️ Plan Approval Mode
 For critical changes, you can require teammates to submit a plan before they start:

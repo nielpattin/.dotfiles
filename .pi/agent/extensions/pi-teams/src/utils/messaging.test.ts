@@ -70,6 +70,29 @@ describe("Messaging Utilities", () => {
     expect(all.every(m => m.read)).toBe(true);
   });
 
+  it("should preserve append order instead of reordering inbox contents", async () => {
+    await appendMessage("test-team", "receiver", {
+      from: "sender-1",
+      text: "runtime message",
+      timestamp: "2026-03-29T13:52:14.331Z",
+      read: false,
+      summary: "runtime",
+    });
+    await appendMessage("test-team", "receiver", {
+      from: "sender-2",
+      text: "startup context that should stay second if appended second",
+      timestamp: "2026-03-29T13:52:14.000Z",
+      read: false,
+      summary: "Initial prompt",
+    });
+
+    const inbox = await readInbox("test-team", "receiver", false, false);
+    expect(inbox.map(m => m.text)).toEqual([
+      "runtime message",
+      "startup context that should stay second if appended second",
+    ]);
+  });
+
   it("should broadcast message to all members except the sender", async () => {
     // Setup team config
     const config = {
