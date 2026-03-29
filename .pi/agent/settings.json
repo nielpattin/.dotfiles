@@ -29,17 +29,12 @@
     },
     "npm:pi-promptsmith",
     "npm:pi-docparser",
-    {
-      "source": "git:https://github.com/badlogic/pi-diff-review",
-      "extensions": [
-        "+src\\index.ts"
-      ]
-    },
     "https://github.com/denismrvoljak/pi-tutor",
     "git:https://github.com/calesennett/pi-codex-fast",
     "C:\\Users\\niel\\.pi\\agent\\extensions\\pi-teams",
     "npm:pi-verbosity-control",
-    "npm:glimpseui"
+    "npm:glimpseui",
+    "git:https://github.com/badlogic/pi-diff-review"
   ],
   "extensions": [
     "-extensions\\theme-cycle\\index.ts",
