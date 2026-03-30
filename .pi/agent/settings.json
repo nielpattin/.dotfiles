@@ -6,7 +6,7 @@
   "editorPaddingX": 0,
   "defaultThinkingLevel": "high",
   "theme": "catppuccin-mocha",
-  "transport": "sse",
+  "transport": "websocket",
   "packages": [
     "npm:pi-mcporter",
     "npm:pi-promptsmith",
@@ -77,5 +77,9 @@
     "-skills\\figma-use\\SKILL.md",
     "-skills\\agent-browser\\SKILL.md",
     "+skills\\drawio-diagrams-enhanced\\SKILL.md"
-  ]
+  ],
+  "terminal": {
+    "clearOnShrink": true
+  },
+  "collapseChangelog": true
 }

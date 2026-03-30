@@ -1,4 +1,5 @@
 {
+    "showIndicator": true,
     "models": {
         "openai-codex/gpt-5.3-codex": "low",
         "openai-codex/gpt-5.4": "low"
