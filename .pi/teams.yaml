@@ -11,3 +11,8 @@
 # Designer team with one ui-designer teammate using proxx/kimi-k2.5 and high thinking
 designer-team:
   - ui-designer
+# Consultant and Project Manager team for structured code reviews. Consultant uses proxx/kimi-k2.5, Project Manager uses openai-codex/gpt-5.4, both with high thinking.
+code-review-consultant-pm:
+  - consultant
+  - project-manager
+
