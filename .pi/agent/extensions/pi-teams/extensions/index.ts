@@ -27,6 +27,7 @@ interface InboxRenderDetails {
   teamName: string;
   targetAgent: string;
   unreadOnly: boolean;
+  bootstrapReplay?: boolean;
   messages: Array<{
     from: string;
     text: string;
@@ -85,11 +86,6 @@ function buildInboxExpandedText(details: InboxRenderDetails, theme: any): string
   }
 
   const lines: string[] = [];
-  lines.push(
-    theme.fg("toolTitle", theme.bold("read_inbox ")) +
-    theme.fg("muted", `${details.targetAgent} @ ${details.teamName}`)
-  );
-  lines.push(theme.fg("dim", details.unreadOnly ? "showing unread messages" : "showing all messages"));
 
   details.messages.forEach((message, index) => {
     lines.push("");
@@ -367,8 +363,8 @@ function cleanupStaleTeam(teamName: string, terminal: any): boolean {
             if (member.windowId) {
               try { terminal.killWindow(member.windowId); } catch {}
             }
-            if (member.tmuxPaneId) {
-              try { terminal.kill(member.tmuxPaneId); } catch {}
+            if (member.paneId) {
+              try { terminal.kill(member.paneId); } catch {}
             }
           }
         }
@@ -436,13 +432,14 @@ export default function (pi: ExtensionAPI) {
   const isTeammate = !!process.env.PI_AGENT_NAME;
   const agentName = process.env.PI_AGENT_NAME || "team-lead";
   const envTeamName = process.env.PI_TEAM_NAME;
+  const teammateSessionId = `${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 
   // For leads without PI_TEAM_NAME, check if we're registered as lead for a team
   const detectedTeamName = envTeamName || findLeadTeamForSession();
   let teamName = detectedTeamName;
 
   const terminal = getTerminalAdapter();
-  const IDLE_INBOX_POLL_INTERVAL_MS = 10000;
+  const IDLE_INBOX_POLL_INTERVAL_MS = 5000;
 
   // Track whether lead inbox polling has been started (to avoid duplicates)
   let leadPollingStarted = false;
@@ -472,18 +469,33 @@ export default function (pi: ExtensionAPI) {
     }, IDLE_INBOX_POLL_INTERVAL_MS);
   }
 
+  function teammateHasInboxHistory(teamName: string, agentName: string): boolean {
+    const inboxFile = paths.inboxPath(teamName, agentName);
+    if (!fs.existsSync(inboxFile)) return false;
+
+    try {
+      const messages = JSON.parse(fs.readFileSync(inboxFile, "utf-8"));
+      return Array.isArray(messages) && messages.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
   pi.on("session_start", async (_event, ctx) => {
     paths.ensureDirs();
     sessionCtx = ctx;
 
     if (isTeammate) {
+      const hasInboxHistory = !!teamName && teammateHasInboxHistory(teamName, agentName);
       if (teamName) {
         const pidFile = path.join(paths.teamDir(teamName), `${agentName}.pid`);
         fs.writeFileSync(pidFile, process.pid.toString());
         await runtime.writeRuntimeStatus(teamName, agentName, {
+          sessionId: teammateSessionId,
           pid: process.pid,
           startedAt: Date.now(),
           lastHeartbeatAt: Date.now(),
+          bootstrapPending: hasInboxHistory,
           ready: false,
           lastError: undefined,
         });
@@ -503,9 +515,11 @@ export default function (pi: ExtensionAPI) {
         setTimeout(setIt, 5000);
       }
 
-      setTimeout(() => {
-        pi.sendUserMessage(`I am starting my work as '${agentName}' on team '${teamName}'. Checking my inbox for any follow-up messages...`, { deliverAs: "followUp" });
-      }, 1000);
+      if (hasInboxHistory) {
+        setTimeout(() => {
+          pi.sendUserMessage("Replay the prior inbox context once to understand the conversation.", { deliverAs: "followUp" });
+        }, 1000);
+      }
 
       // Inbox polling for teammates
       if (teamName) {
@@ -567,7 +581,13 @@ export default function (pi: ExtensionAPI) {
       }
 
       return {
-        systemPrompt: buildTeammateSystemPrompt(event.systemPrompt, teamName, agentName, member),
+        systemPrompt: buildTeammateSystemPrompt(
+          event.systemPrompt,
+          teamName,
+          agentName,
+          member,
+          teammateHasInboxHistory(teamName, agentName)
+        ),
       };
     }
 
@@ -590,7 +610,7 @@ export default function (pi: ExtensionAPI) {
 
     try {
       await teams.updateMember(teamName, agentName, {
-        tmuxPaneId: "",
+        paneId: "",
         windowId: undefined,
         isActive: false,
       });
@@ -613,31 +633,80 @@ export default function (pi: ExtensionAPI) {
     return piBinary;
   }
 
-  function isMemberAlive(teamName: string, member: Member): boolean {
+  type MemberHealth = "healthy" | "starting" | "stale" | "dead" | "stopped";
+
+  function readRuntimeStatusSnapshot(teamName: string, memberName: string): runtime.AgentRuntimeStatus | null {
+    const runtimeFile = paths.runtimeStatusPath(teamName, memberName);
+    if (!fs.existsSync(runtimeFile)) return null;
+
+    try {
+      return JSON.parse(fs.readFileSync(runtimeFile, "utf-8")) as runtime.AgentRuntimeStatus;
+    } catch {
+      return null;
+    }
+  }
+
+  function getMemberSnapshot(teamName: string, member: Member) {
     const pidFile = path.join(paths.teamDir(teamName), `${member.name}.pid`);
+    let pid: number | null = null;
+    let pidAlive = false;
+
     if (fs.existsSync(pidFile)) {
       try {
-        const pid = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
-        if (!Number.isNaN(pid) && isPidAlive(pid)) {
-          return true;
+        const parsed = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
+        if (!Number.isNaN(parsed)) {
+          pid = parsed;
+          pidAlive = isPidAlive(parsed);
         }
       } catch {}
     }
 
-    if (member.windowId && terminal) {
-      return terminal.isWindowAlive(member.windowId);
+    const runtimeStatus = readRuntimeStatusSnapshot(teamName, member.name);
+    const now = Date.now();
+    const hasRecentHeartbeat = !!runtimeStatus?.lastHeartbeatAt
+      && (now - runtimeStatus.lastHeartbeatAt) <= runtime.HEARTBEAT_STALE_MS;
+
+    let health: MemberHealth;
+    if (member.isActive === false) {
+      health = "stopped";
+    } else if (!pidAlive) {
+      health = "dead";
+    } else if (!runtimeStatus || !runtimeStatus.ready) {
+      const startedAt = runtimeStatus?.startedAt || member.joinedAt;
+      health = (now - startedAt) > runtime.STARTUP_STALL_MS ? "stale" : "starting";
+    } else if (!hasRecentHeartbeat) {
+      health = "stale";
+    } else {
+      health = "healthy";
     }
 
-    if (member.tmuxPaneId && terminal) {
-      return terminal.isAlive(member.tmuxPaneId);
-    }
+    return {
+      pid,
+      pidAlive,
+      runtimeStatus,
+      hasRecentHeartbeat,
+      health,
+    };
+  }
 
-    return false;
+  async function getTeamRuntimeState(teamName: string): Promise<"running" | "stopped" | "partially_running" | "empty"> {
+    const config = await teams.readConfig(teamName);
+    const teammates = config.members.filter(m => m.agentType === "teammate");
+    if (teammates.length === 0) return "empty";
+
+    const activeCount = teammates.filter(m => {
+      const health = getMemberSnapshot(teamName, m).health;
+      return health === "healthy" || health === "starting";
+    }).length;
+
+    if (activeCount === 0) return "stopped";
+    if (activeCount === teammates.length) return "running";
+    return "partially_running";
   }
 
   async function markMemberStopped(teamName: string, memberName: string) {
     await teams.updateMember(teamName, memberName, {
-      tmuxPaneId: "",
+      paneId: "",
       windowId: undefined,
       isActive: false,
     });
@@ -661,8 +730,8 @@ export default function (pi: ExtensionAPI) {
       terminal.killWindow(member.windowId);
     }
 
-    if (member.tmuxPaneId && terminal) {
-      terminal.kill(member.tmuxPaneId);
+    if (member.paneId && terminal) {
+      terminal.kill(member.paneId);
     }
 
     await runtime.deleteRuntimeStatus(teamName, member.name);
@@ -703,22 +772,17 @@ export default function (pi: ExtensionAPI) {
         teamName: teamConfig.name,
       });
     } else {
-      const leadMember = teamConfig.members.find(m => m.name === "team-lead");
-      const anchorPaneId = terminal.name === "tmux"
-        ? leadMember?.tmuxPaneId || process.env.TMUX_PANE || undefined
-        : undefined;
-
       terminalId = terminal.spawn({
         name: member.name,
         cwd: member.cwd,
         command: piCmd,
         env,
-        anchorPaneId,
       });
     }
 
     await teams.updateMember(teamConfig.name, member.name, {
-      tmuxPaneId: isWindow ? "" : terminalId,
+      joinedAt: Date.now(),
+      paneId: isWindow ? "" : terminalId,
       windowId: isWindow ? terminalId : undefined,
       backendType: isWindow ? "window" : "pane",
       isActive: true,
@@ -743,6 +807,10 @@ export default function (pi: ExtensionAPI) {
       // This handles the case where a session was aborted and restarted
       if (teams.teamExists(params.team_name)) {
         cleanupStaleTeam(params.team_name, terminal);
+        if (teams.teamExists(params.team_name)) {
+          const state = await getTeamRuntimeState(params.team_name);
+          throw new Error(`Team "${params.team_name}" already exists and is ${state}. Use team_resume({ team_name: "${params.team_name}" }) to continue it.`);
+        }
       }
       
       const config = teams.createTeam(params.team_name, "local-session", "lead-agent", params.description, params.default_model, params.separate_windows);
@@ -823,7 +891,7 @@ export default function (pi: ExtensionAPI) {
         agentType: "teammate",
         model: chosenModel,
         joinedAt: Date.now(),
-        tmuxPaneId: "",
+        paneId: "",
         cwd: params.cwd,
         subscriptions: [],
         prompt: params.prompt,
@@ -932,7 +1000,8 @@ export default function (pi: ExtensionAPI) {
     label: "Read Inbox",
     description: "Read messages from an agent's inbox.",
     promptGuidelines: [
-      "For teammates, use this once at startup or when you have a concrete reason to believe unread messages exist.",
+      "For teammates, use this once at startup only when there is prior inbox history to replay for the new session.",
+      "After startup, only call this when you have a concrete reason to believe unread messages exist.",
       "Do not use this tool in manual polling loops. Teammates are automatically woken by the extension's 10-second idle inbox polling.",
     ],
     parameters: objectSchema({
@@ -942,13 +1011,24 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(toolCallId, params: any, signal, onUpdate, ctx) {
       const targetAgent = params.agent_name || agentName;
-      const unreadOnly = params.unread_only ?? true;
+      let unreadOnly = params.unread_only ?? true;
+      let bootstrapReplay = false;
+
+      if (isTeammate && teamName && params.team_name === teamName && targetAgent === agentName) {
+        const runtimeStatus = await runtime.readRuntimeStatus(teamName, agentName);
+        bootstrapReplay = !!runtimeStatus?.bootstrapPending;
+        if (bootstrapReplay) {
+          unreadOnly = false;
+        }
+      }
+
       const msgs = await messaging.readInbox(params.team_name, targetAgent, unreadOnly);
 
       if (isTeammate && teamName && params.team_name === teamName && targetAgent === agentName) {
         await runtime.writeRuntimeStatus(teamName, agentName, {
           lastHeartbeatAt: Date.now(),
           lastInboxReadAt: Date.now(),
+          bootstrapPending: false,
           ready: true,
           lastError: undefined,
         });
@@ -960,6 +1040,7 @@ export default function (pi: ExtensionAPI) {
           teamName: params.team_name,
           targetAgent,
           unreadOnly,
+          bootstrapReplay,
           messages: msgs,
         },
       };
@@ -1096,7 +1177,8 @@ export default function (pi: ExtensionAPI) {
       for (const member of config.members) {
         if (member.name === "team-lead") continue;
 
-        if (isMemberAlive(safeTeamName, member)) {
+        const snapshot = getMemberSnapshot(safeTeamName, member);
+        if (snapshot.health !== "dead" && snapshot.health !== "stopped") {
           await killTeammate(safeTeamName, member);
           stopped.push(member.name);
         } else {
@@ -1150,7 +1232,8 @@ export default function (pi: ExtensionAPI) {
       for (const member of config.members) {
         if (member.name === "team-lead") continue;
 
-        if (isMemberAlive(safeTeamName, member)) {
+        const snapshot = getMemberSnapshot(safeTeamName, member);
+        if (snapshot.health === "healthy" || snapshot.health === "starting") {
           alreadyRunning.push(member.name);
           continue;
         }
@@ -1221,8 +1304,8 @@ export default function (pi: ExtensionAPI) {
             if (leadMember.windowId) {
               try { terminal.killWindow(leadMember.windowId); } catch {}
             }
-            if (leadMember.tmuxPaneId) {
-              try { terminal.kill(leadMember.tmuxPaneId); } catch {}
+            if (leadMember.paneId) {
+              try { terminal.kill(leadMember.paneId); } catch {}
             }
           }
         }
@@ -1299,37 +1382,27 @@ export default function (pi: ExtensionAPI) {
       const member = config.members.find(m => m.name === params.agent_name);
       if (!member) throw new Error(`Teammate ${params.agent_name} not found`);
 
-      const alive = isMemberAlive(params.team_name, member);
-
+      const snapshot = getMemberSnapshot(params.team_name, member);
+      const alive = snapshot.health === "healthy" || snapshot.health === "starting";
       const unreadCount = (await messaging.readInbox(params.team_name, params.agent_name, true, false)).length;
-      const runtimeStatus = await runtime.readRuntimeStatus(params.team_name, params.agent_name);
       const now = Date.now();
-      const hasRecentHeartbeat = !!runtimeStatus?.lastHeartbeatAt
-        && (now - runtimeStatus.lastHeartbeatAt) <= runtime.HEARTBEAT_STALE_MS;
-      const startupStalled = alive
+      const startupStalled = snapshot.health === "starting"
         && unreadCount > 0
         && (now - member.joinedAt) > runtime.STARTUP_STALL_MS
-        && !(runtimeStatus?.ready);
-      const health = !alive
-        ? "dead"
-        : startupStalled
-          ? "stalled"
-          : runtimeStatus?.ready
-            ? (hasRecentHeartbeat ? "healthy" : "idle")
-            : "starting";
+        && !(snapshot.runtimeStatus?.ready);
+      const health = startupStalled ? "stalled" : snapshot.health;
 
       const details = {
         alive,
         unreadCount,
         health,
-        agentLoopReady: !!runtimeStatus?.ready,
-        hasRecentHeartbeat,
+        agentLoopReady: !!snapshot.runtimeStatus?.ready,
+        hasRecentHeartbeat: snapshot.hasRecentHeartbeat,
         startupStalled,
-        runtime: runtimeStatus,
+        runtime: snapshot.runtimeStatus,
       };
 
-      // Clean up runtime status for dead teammates
-      if (!alive && runtimeStatus) {
+      if (snapshot.health === "dead" && snapshot.runtimeStatus) {
         await runtime.deleteRuntimeStatus(params.team_name, params.agent_name);
       }
 
@@ -1443,6 +1516,14 @@ export default function (pi: ExtensionAPI) {
         throw new Error("No terminal adapter detected.");
       }
 
+      if (teams.teamExists(params.team_name)) {
+        cleanupStaleTeam(params.team_name, terminal);
+        if (teams.teamExists(params.team_name)) {
+          const state = await getTeamRuntimeState(params.team_name);
+          throw new Error(`Team "${params.team_name}" already exists and is ${state}. Use team_resume({ team_name: "${params.team_name}" }) to continue it.`);
+        }
+      }
+
       // Create the team
       const config = teams.createTeam(params.team_name, "local-session", "lead-agent", `Predefined team: ${params.predefined_team}`, params.default_model, params.separate_windows);
       registerLeadSession(params.team_name);
@@ -1486,7 +1567,7 @@ export default function (pi: ExtensionAPI) {
             agentType: "teammate",
             model: chosenModel,
             joinedAt: Date.now(),
-            tmuxPaneId: "",
+            paneId: "",
             cwd: params.cwd,
             subscriptions: [],
             prompt: agentDef.prompt,
@@ -1605,7 +1686,10 @@ You can now use this template with:
         try {
           const config = await teams.readConfig(team.name);
           const teammates = config.members.filter(m => m.agentType === "teammate");
-          activeCount = teammates.filter(m => isMemberAlive(team.name, m)).length;
+          activeCount = teammates.filter(m => {
+            const health = getMemberSnapshot(team.name, m).health;
+            return health === "healthy" || health === "starting";
+          }).length;
           inactiveCount = Math.max(0, teammates.length - activeCount);
 
           if (teammates.length === 0) {

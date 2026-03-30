@@ -69,15 +69,7 @@ export class WindowsAdapter implements TerminalAdapter {
   }
 
   detect(): boolean {
-    if (process.platform !== "win32") {
-      return false;
-    }
-
-    if (process.env.TMUX || process.env.ZELLIJ || process.env.WEZTERM_PANE) {
-      return false;
-    }
-
-    return true;
+    return process.platform === "win32";
   }
 
   private escapeForSingleQuotedPs(value: string): string {
@@ -164,7 +156,7 @@ export class WindowsAdapter implements TerminalAdapter {
 
   isAlive(paneId: string): boolean {
     if (!paneId?.startsWith("windows_")) return false;
-    return true;
+    return false;
   }
 
   setTitle(title: string): void {

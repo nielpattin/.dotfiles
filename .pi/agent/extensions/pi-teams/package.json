@@ -4,9 +4,6 @@
   "pi": {
     "extensions": [
       "./extensions/index.ts"
-    ],
-    "skills": [
-      "./skills"
     ]
   }
 }

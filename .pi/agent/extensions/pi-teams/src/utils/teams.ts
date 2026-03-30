@@ -8,6 +8,27 @@ export function teamExists(teamName: string) {
   return fs.existsSync(configPath(teamName));
 }
 
+function normalizeMember(member: any): Member {
+  const paneId = typeof member?.paneId === "string"
+    ? member.paneId
+    : typeof member?.tmuxPaneId === "string"
+      ? member.tmuxPaneId
+      : "";
+
+  const { tmuxPaneId: _legacyTmuxPaneId, ...rest } = member || {};
+  return {
+    ...rest,
+    paneId,
+  } as Member;
+}
+
+function normalizeConfig(config: TeamConfig): TeamConfig {
+  return {
+    ...config,
+    members: (config.members || []).map(normalizeMember),
+  };
+}
+
 export function createTeam(
   name: string,
   sessionId: string,
@@ -27,7 +48,7 @@ export function createTeam(
     name: "team-lead",
     agentType: "lead",
     joinedAt: Date.now(),
-    tmuxPaneId: process.env.TMUX_PANE || "",
+    paneId: "",
     cwd: process.cwd(),
     subscriptions: [],
   };
@@ -48,7 +69,7 @@ export function createTeam(
 }
 
 function readConfigRaw(p: string): TeamConfig {
-  return JSON.parse(fs.readFileSync(p, "utf-8"));
+  return normalizeConfig(JSON.parse(fs.readFileSync(p, "utf-8")));
 }
 
 export async function readConfig(teamName: string): Promise<TeamConfig> {

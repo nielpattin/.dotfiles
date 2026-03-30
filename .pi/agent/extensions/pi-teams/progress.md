@@ -31,6 +31,6 @@ None
 
 ### Decisions Made
 - Use escape sequences (`\033]2;Title\007`) for iTerm2 window titles since AppleScript window.title is read-only
-- Add new `windowId` field to Member model instead of reusing `tmuxPaneId`
+- Add new `windowId` field to Member model instead of reusing the pane id field
 - Store `separateWindows` global setting in TeamConfig
 - Skip tmux/Zellij entirely (no fallback attempted)

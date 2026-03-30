@@ -4,7 +4,7 @@ export interface Member {
   agentType: string;
   model?: string;
   joinedAt: number;
-  tmuxPaneId: string;
+  paneId: string;
   windowId?: string;
   cwd: string;
   subscriptions: any[];

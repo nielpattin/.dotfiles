@@ -131,7 +131,7 @@ Implement the ability to open team members (including the team lead) in separate
 
 1. **Window Title Strategy:** Use escape sequences (`\033]2;Title\007`) for iTerm2 window titles since AppleScript's window title property is read-only. Tab titles will use the session `name` property.
 
-2. **ID Tracking:** Store window IDs in the same `tmuxPaneId` field (renamed conceptually to `terminalId`) or add a new `windowId` field to Member model. Decision: Add `windowId` field to be explicit.
+2. **ID Tracking:** Store window IDs separately from the pane id field. Decision: Add `windowId` to the Member model to keep pane and window identifiers explicit.
 
 3. **Fallback Behavior:** If `separate_window: true` is requested but terminal doesn't support it, throw an error with clear message.
 

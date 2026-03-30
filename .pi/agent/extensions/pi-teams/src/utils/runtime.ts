@@ -22,10 +22,12 @@ export interface RuntimeError {
 export interface AgentRuntimeStatus {
   teamName: string;
   agentName: string;
+  sessionId?: string;
   pid?: number;
   startedAt?: number;
   lastHeartbeatAt?: number;
   lastInboxReadAt?: number;
+  bootstrapPending?: boolean;
   ready?: boolean;
   lastError?: RuntimeError;
 }

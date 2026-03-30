@@ -1,18 +1,19 @@
 import type { Member } from "./models";
 
 export function buildInboxWakeupMessage(teamName: string, unreadCount: number): string {
-  return `You have ${unreadCount} unread inbox message(s) on team '${teamName}'. Call read_inbox({ team_name: '${teamName}' }) now, then process those messages.`;
+  return `You have ${unreadCount} unread inbox message(s) on team '${teamName}'. Read your inbox and process those messages.`;
 }
 
 export function buildLeadSystemPrompt(baseSystemPrompt: string, teamName: string): string {
-  return `${baseSystemPrompt}\n\nYou are the team lead for team '${teamName}'. When a follow-up says there are unread inbox messages, call read_inbox({ team_name: '${teamName}' }) immediately before responding. Do not assume the inbox has already been read. Use the inbox to consume teammate progress updates, questions, and coordination messages.`;
+  return `${baseSystemPrompt}\n\nYou are the team lead for team '${teamName}'. When a follow-up says there are unread inbox messages, read the inbox before responding. Use the inbox to consume teammate progress updates, questions, drafts, plans, and completed work, then turn that into the user-facing response.`;
 }
 
 export function buildTeammateSystemPrompt(
   baseSystemPrompt: string,
   teamName: string,
   agentName: string,
-  member?: Pick<Member, "model" | "thinking" | "prompt" | "planModeRequired">
+  member?: Pick<Member, "model" | "thinking" | "prompt" | "planModeRequired">,
+  bootstrapInbox: boolean = true
 ): string {
   let modelInfo = "";
   if (member?.model) {
@@ -24,12 +25,20 @@ export function buildTeammateSystemPrompt(
   }
 
   const initialAssignment = member?.prompt
-    ? `\nYour initial assignment is below. Treat it as your starting task. It is startup context, not an inbox message.\n\n${member.prompt}`
+    ? `\nYour initial assignment is below. Treat it as your starting task for this session.\n\n${member.prompt}`
     : "";
+
+  const coordination = `\nteam-lead coordinates the team and represents the active user request. Send team-lead your questions, blockers, plans, drafts, findings, progress updates, and completed work.`;
 
   const planMode = member?.planModeRequired
-    ? "\nPlan approval mode is required. Before implementing changes, submit a plan and wait for approval."
+    ? "\nPlan approval mode is required. Submit your plan first, then continue after approval."
     : "";
 
-  return `${baseSystemPrompt}\n\nYou are teammate '${agentName}' on team '${teamName}'.\nYour lead is 'team-lead'.${modelInfo}${initialAssignment}${planMode}\nStart by calling read_inbox(team_name=\"${teamName}\") once to check for any unread follow-up messages. After that, work from your initial assignment and inbox contents. When you send a progress or completion update to team-lead, end your turn. Do not manually poll with repeated read_inbox calls or sleep loops while waiting. The extension will automatically wake you when new unread inbox messages arrive.`;
+  const inboxBootstrap = bootstrapInbox
+    ? "\nStart this session by replaying prior inbox context once."
+    : "\nStart this session from your initial assignment.";
+
+  const workflow = "\nContinue from your assignment and inbox context. The extension wakes you automatically when new unread inbox messages arrive.";
+
+  return `${baseSystemPrompt}\n\nYou are teammate '${agentName}' on team '${teamName}'.${coordination}${modelInfo}${initialAssignment}${planMode}${inboxBootstrap}${workflow}`;
 }

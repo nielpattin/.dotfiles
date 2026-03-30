@@ -27,10 +27,6 @@ describe("WindowsAdapter", () => {
     vi.resetAllMocks();
     vi.clearAllMocks();
 
-    delete process.env.TMUX;
-    delete process.env.ZELLIJ;
-    delete process.env.WEZTERM_PANE;
-
     Object.defineProperty(process, "platform", {
       value: originalPlatform,
       writable: true,
@@ -61,29 +57,11 @@ describe("WindowsAdapter", () => {
       expect(adapter.detect()).toBe(false);
     });
 
-    it("does not detect inside tmux", () => {
-      Object.defineProperty(process, "platform", { value: "win32" });
-      process.env.TMUX = "1";
-      expect(adapter.detect()).toBe(false);
-    });
-
-    it("does not detect inside zellij", () => {
-      Object.defineProperty(process, "platform", { value: "win32" });
-      process.env.ZELLIJ = "true";
-      expect(adapter.detect()).toBe(false);
-    });
-
-    it("does not detect inside wezterm", () => {
-      Object.defineProperty(process, "platform", { value: "win32" });
-      process.env.WEZTERM_PANE = "123";
-      expect(adapter.detect()).toBe(false);
-    });
   });
 
   describe("spawn()", () => {
     it("spawns with split-pane and encoded command", () => {
       Object.defineProperty(process, "platform", { value: "win32" });
-      mockExecCommand.mockReturnValueOnce({ stdout: "wt", stderr: "", status: 0 });
       mockExecCommand.mockReturnValueOnce({ stdout: "found", stderr: "", status: 0 });
       mockExecCommand.mockReturnValueOnce({ stdout: "", stderr: "", status: 0 });
 
@@ -95,7 +73,7 @@ describe("WindowsAdapter", () => {
       });
 
       expect(paneId).toMatch(/^windows_\d+_test-agent$/);
-      const call = mockExecCommand.mock.calls[2]!;
+      const call = mockExecCommand.mock.calls[1]!;
       expect(call[0]).toBe("wt");
       expect(call[1]!.slice(0, 8)).toEqual([
         "-w", "0", "split-pane", "--profile", "pi-teams-pwsh", "--vertical", "--size", "0.5",
@@ -110,7 +88,6 @@ describe("WindowsAdapter", () => {
 
     it("falls back to horizontal split if vertical fails", () => {
       Object.defineProperty(process, "platform", { value: "win32" });
-      mockExecCommand.mockReturnValueOnce({ stdout: "wt", stderr: "", status: 0 });
       mockExecCommand.mockReturnValueOnce({ stdout: "found", stderr: "", status: 0 });
       mockExecCommand.mockReturnValueOnce({ stdout: "", stderr: "vertical failed", status: 1 });
       mockExecCommand.mockReturnValueOnce({ stdout: "", stderr: "", status: 0 });
@@ -123,7 +100,7 @@ describe("WindowsAdapter", () => {
       });
 
       expect(paneId).toMatch(/^windows_\d+_test-agent-2$/);
-      const fallbackCall = mockExecCommand.mock.calls[3]!;
+      const fallbackCall = mockExecCommand.mock.calls[2]!;
       expect(fallbackCall[1]!.slice(0, 8)).toEqual([
         "-w", "0", "split-pane", "--profile", "pi-teams-pwsh", "--horizontal", "--size", "0.5",
       ]);
@@ -141,7 +118,7 @@ describe("WindowsAdapter", () => {
   describe("spawnWindow()", () => {
     it("spawns a new window", () => {
       Object.defineProperty(process, "platform", { value: "win32" });
-      mockExecCommand.mockReturnValueOnce({ stdout: "wt", stderr: "", status: 0 });
+      mockExecCommand.mockReturnValueOnce({ stdout: "found", stderr: "", status: 0 });
       mockExecCommand.mockReturnValueOnce({ stdout: "", stderr: "", status: 0 });
 
       const windowId = adapter.spawnWindow({
@@ -191,7 +168,7 @@ describe("WindowsAdapter", () => {
   });
 
   it("kill ignores non-windows pane ids", () => {
-    adapter.kill("tmux_pane-123");
+    adapter.kill("pane-123");
   });
 
   it("killWindow ignores non-windows window ids", () => {
@@ -205,12 +182,12 @@ describe("WindowsAdapter", () => {
     expect(mockExecCommand).toHaveBeenNthCalledWith(2, "pwsh", ["-NoProfile", "-Command", expect.stringContaining("FindWindow")]);
   });
 
-  it("isAlive returns true for windows pane ids", () => {
-    expect(adapter.isAlive("windows_123_test")).toBe(true);
+  it("isAlive does not treat synthetic windows pane ids as live", () => {
+    expect(adapter.isAlive("windows_123_test")).toBe(false);
   });
 
   it("isAlive returns false for non-windows pane ids", () => {
-    expect(adapter.isAlive("tmux_pane-123")).toBe(false);
+    expect(adapter.isAlive("pane-123")).toBe(false);
   });
 
   it("isWindowAlive returns true for tracked live window ids", () => {

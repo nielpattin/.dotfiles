@@ -29,8 +29,10 @@ describe("runtime status", () => {
 
   it("writes and reads status", async () => {
     await writeRuntimeStatus(teamName, agentName, {
+      sessionId: "session-1",
       pid: 123,
       startedAt: 1000,
+      bootstrapPending: true,
       ready: false,
     });
 
@@ -38,7 +40,9 @@ describe("runtime status", () => {
     expect(runtime).not.toBeNull();
     expect(runtime?.teamName).toBe(teamName);
     expect(runtime?.agentName).toBe(agentName);
+    expect(runtime?.sessionId).toBe("session-1");
     expect(runtime?.pid).toBe(123);
+    expect(runtime?.bootstrapPending).toBe(true);
     expect(runtime?.ready).toBe(false);
   });
 
