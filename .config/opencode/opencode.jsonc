@@ -160,4 +160,18 @@
     "nvidia",
     "modal"
   ],
+  "provider": {
+    "proxx": {
+      "name": "Proxx",
+      "npm": "@ai-sdk/openai-compatible",
+      "models": {
+        "kimi-k2.5": {
+          "name": "Kimi K2.5"
+        }
+      },
+      "options": {
+        "baseURL": "http://127.0.0.1:8789/v1"
+      }
+    }
+  },
 }
