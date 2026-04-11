@@ -1,0 +1,175 @@
+# Exported from the current dotfiles setup.
+#
+# Semantics:
+# - _files lists exact tracked files at that level.
+# - folder/*: tracked means every current file under that folder tree was tracked when exported.
+format: 3
+generated_at: 2026-04-11
+source:
+  repo_git_dir: 'C:/Users/niel/.dotfiles'
+  work_tree: 'C:/Users/niel'
+  tracked_file_count: 291
+  collapsed_directory_count: 36
+  explicit_file_count: 90
+tracked:
+  _files:
+    - .gitconfig
+    - .gitignore
+    - .ignore
+    - .profile
+    - .wslconfig
+    - README.md
+  '.config':
+    _files:
+      - starship.toml
+    'cagent/*': tracked
+    'documine/*': tracked
+    gh:
+      _files:
+        - config.yml
+    'gh-dash/*': tracked
+    'mise/*': tracked
+    'nvim/*': tracked
+    opencode:
+      _files:
+        - .gitignore
+        - AGENTS.md
+        - opencode-notifier.jsonc
+        - opencode.json
+        - opencode.jsonc
+        - package-lock.json
+        - package.json
+        - tui.json
+      'agents/*': tracked
+      'assets/*': tracked
+      commands:
+        _files:
+          - clone.md
+          - complete-next-task.md
+          - draft.md
+          - explain.md
+          - fix.md
+          - issues.md
+          - md2pdf.md
+          - rmslop.md
+          - spec.md
+      plugins:
+        exsolutor:
+          _files:
+            - .gitignore
+            - AGENTS.md
+            - package.json
+            - README.md
+            - tsconfig.json
+          'src/*': tracked
+        opencode-notifier:
+          _files:
+            - .gitignore
+            - CHANGELOG.md
+            - LICENSE
+            - package.json
+            - README.md
+            - tsconfig.json
+          'sounds/*': tracked
+          'src/*': tracked
+        opencode-session-manager:
+          _files:
+            - .gitignore
+            - package.json
+            - README.md
+            - tsconfig.json
+          'src/*': tracked
+          'test/*': tracked
+      src:
+        task-loop:
+          _files:
+            - index.test.ts
+            - index.ts
+            - package.json
+            - README.md
+            - tsconfig.json
+      'templates/*': tracked
+  '.local':
+    bin:
+      _files:
+        - dot
+        - dot-ai.ps1
+        - dot.cmd
+  '.mcporter':
+    _files:
+      - mcporter.json
+  '.pi':
+    _files:
+      - teams.yaml
+    agent:
+      _files:
+        - .gitignore
+        - AGENTS.md
+        - fzf.json
+        - keybindings.json
+        - mcporter.json
+        - models.json
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - preciseVerboseReporter.ts
+        - promptsmith-settings.json
+        - session-manager-config.toml
+        - settings.json
+        - SYSTEM.md.bak
+        - test.sh
+        - tsconfig.json
+        - verbosity.json
+        - vitest.config.ts
+      'agents/*': tracked
+      'assets/*': tracked
+      extensions:
+        _files:
+          - context-scope.ts
+          - figma-start.ts
+          - files.ts
+          - prompt-stash.ts
+          - rg-guard.ts
+          - tps.ts
+          - web-reader.ts
+        'agents-discovery/*': tracked
+        'diff-renderer/*': tracked
+        'notification/*': tracked
+        'pi-session-bridge/*': tracked
+        pi-teams:
+          _files:
+            - .gitignore
+            - AGENTS.md
+            - CHANGELOG.md
+            - context.md
+            - findings.md
+            - iTerm2.png
+            - package.json
+            - pi-team-in-action.png
+            - progress.md
+            - README.md
+            - task_plan.md
+            - tmux.png
+            - tsconfig.json
+            - zellij.png
+          'docs/*': tracked
+          'extensions/*': tracked
+          'src/*': tracked
+        'powerline-footer/*': tracked
+        'pwsh/*': tracked
+        'smart-sessions/*': tracked
+        'tab-status/*': tracked
+        'theme-cycle/*': tracked
+        'tool-selector/*': tracked
+        'welcome/*': tracked
+      'prompts/*': tracked
+      'skills/*': tracked
+      'templates/*': tracked
+      'themes/*': tracked
+      'vibes/*': tracked
+    'skills/*': tracked
+  'docs/*': tracked
+  Documents:
+    PowerShell:
+      _files:
+        - Microsoft.PowerShell_profile.ps1
