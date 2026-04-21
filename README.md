@@ -53,3 +53,23 @@ It preserves existing user PATH entries and adds the common directories used in 
 ```
 
 Then open a new terminal.
+
+
+## Sync the home to the dotfiles repo
+
+ ```bash
+   python "$HOME/.dotfiles/scripts/sync_from_home.py"
+ ```
+
+ Dry run:
+
+ ```bash
+   python "$HOME/.dotfiles/scripts/sync_from_home.py" --dry-run
+ ```
+
+ Useful flags:
+
+ ```bash
+   python "$HOME/.dotfiles/scripts/sync_from_home.py" --no-prune
+   python "$HOME/.dotfiles/scripts/sync_from_home.py" --strict-missing
+ ```

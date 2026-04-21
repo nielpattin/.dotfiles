@@ -4,7 +4,7 @@
 format: 3
 generated_at: 2026-04-11
 source:
-  - home: C:/Users/<username>
+  - home: C:/Users/niel
 tracked:
   _files:
     - .gitconfig
@@ -12,11 +12,10 @@ tracked:
     - .ignore
     - .profile
     - .wslconfig
+    - .bashrc
   .config:
     _files:
       - starship.toml
-    cagent/*: tracked
-    documine/*: tracked
     gh:
       _files:
         - config.yml
@@ -26,18 +25,8 @@ tracked:
   .local:
     bin:
       _files:
-        - dot
-        - dot-ai.ps1
-        - dot.cmd
         - install-winget-latest.ps1
-        - refresh-user-path.ps1
-  .mcporter:
-    _files:
-      - mcporter.json
-  .pi:
-    _files:
-      - teams.yaml
-  docs/*: tracked
+        - refresh.ps1
   Documents:
     PowerShell:
       _files:
