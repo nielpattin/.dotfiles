@@ -20,7 +20,6 @@ tracked:
       _files:
         - config.yml
     gh-dash/*: tracked
-    mise/*: tracked
     nvim/*: tracked
   .local:
     bin:

@@ -15,8 +15,6 @@ In pwsh, run the following to install tools with winget. This will be faster tha
 ```bash
 winget install --id Git.Git -e -i
 winget install --id GitHub.cli -e
-winget install --id jdx.mise -e
-
 
 winget install --id BurntSushi.ripgrep.MSVC -e
 winget install --id junegunn.fzf -e
@@ -26,7 +24,6 @@ winget install --id Microsoft.PowerShell -e
 
 winget install --id Starship.Starship -e
 winget install --id eza-community.eza -e
-winget install --id ajeetdsouza.zoxide -e
 winget install --id Microsoft.PowerToys -e
 
 winget install --id Microsoft.WindowsTerminal -e
@@ -35,7 +32,6 @@ winget install --id Microsoft.VisualStudioCode -e
 winget install --id DuongDieuPhap.ImageGlass -e
 
 winget install --id OpenJS.NodeJS.LTS -e -i
-winget install --id pnpm.pnpm -e
 winget install --id Oven-sh.Bun -e
 winget install --id GoLang.Go -e
 

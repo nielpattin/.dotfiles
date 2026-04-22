@@ -19,11 +19,6 @@ if (Get-Command starship -ErrorAction SilentlyContinue) {
     Invoke-Expression (&starship init powershell)
 }
 
-# Zoxide
-if (Get-Command zoxide -ErrorAction SilentlyContinue) {
-    Invoke-Expression (& { (zoxide init powershell | Out-String) })
-}
-
 # Functions (moved outside wrapper for reliability)
 function touch($file) { "" | Out-File $file -Encoding ASCII }
 
@@ -132,10 +127,6 @@ function bash {
 #     Write-Host "OpenCode Proxy Disabled" -ForegroundColor Yellow
 # }
 
-# Prefer mise-managed tools over standalone pnpm-home binaries
+# Prefer standalone pnpm-home binaries
 # $pnpmHome = Join-Path $HOME "AppData\Local\pnpm"
 # $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and $_ -ne $pnpmHome } | Select-Object -Unique) -join ';'
-
-if (Get-Command mise -ErrorAction SilentlyContinue) {
-    (& mise activate pwsh) | Out-String | Invoke-Expression
-}
