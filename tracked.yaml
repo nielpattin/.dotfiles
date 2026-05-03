@@ -2,14 +2,13 @@
 # - _files lists exact tracked files at that level.
 # - folder/*: tracked means every current file under that folder tree was tracked when exported.
 format: 3
-generated_at: 2026-04-11
+generated_at: 2026-05-03
 source:
   - home: C:/Users/niel
 tracked:
   _files:
     - .gitconfig
     - .gitignore
-    - .ignore
     - .profile
     - .wslconfig
     - .bashrc
@@ -24,6 +23,7 @@ tracked:
   .local:
     bin:
       _files:
+        - bun-cleanup.ps1
         - install-winget-latest.ps1
         - refresh.ps1
   Documents:
