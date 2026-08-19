@@ -1,34 +1,80 @@
-# AstroNvim Template
+# Neovim configuration
 
-**NOTE:** This is for AstroNvim v6+
+Personal AstroNvim v6 configuration for Windows.
 
-A template for getting started with [AstroNvim](https://github.com/AstroNvim/AstroNvim)
+## Requirements
 
-## 🛠️ Installation
+- Neovim 0.11 or newer
+- Git
+- A Nerd Font
+- GCC available on `PATH`
+- A modern web browser
 
-#### Make a backup of your current nvim and shared folder
+## Languages
 
-```shell
-mv ~/.config/nvim ~/.config/nvim.bak
-mv ~/.local/share/nvim ~/.local/share/nvim.bak
-mv ~/.local/state/nvim ~/.local/state/nvim.bak
-mv ~/.cache/nvim ~/.cache/nvim.bak
+The configuration supports Astro, TypeScript, JavaScript, Go, Python, CSS, HTML, Lua, Markdown, TOML, YAML, JSON, JSONC, INI, shell scripts, PowerShell, and SQL.
+
+## Configuration diagram
+
+```mermaid
+flowchart TD
+  NVIM["Neovim 0.11+"] --> INIT["init.lua<br/>Bootstrap lazy.nvim"]
+  INIT --> LAZY["lua/lazy_setup.lua<br/>Load AstroNvim v6"]
+  LAZY --> POLISH["lua/polish.lua<br/>Use GCC for Treesitter builds"]
+
+  LOCK["lazy-lock.json<br/>Pinned plugin revisions"] -.-> LAZY
+
+  LAZY --> ASTRO["AstroNvim defaults<br/>Current colorscheme and clipboard"]
+  LAZY --> PLUGINS
+
+  subgraph PLUGINS["lua/plugins"]
+    CORE["astrocore.lua<br/>Relative numbers and wrapped lines"]
+    LSP["astrolsp.lua<br/>LSP integration and no format-on-save"]
+    MASON["mason.lua<br/>Install development tools"]
+    TREESITTER["treesitter.lua<br/>Install syntax parsers"]
+    MARKDOWN["render-markdown.lua<br/>Render Markdown buffers"]
+    PREVIEW["live-preview.lua<br/>Live browser preview"]
+  end
+
+  MASON --> SERVERS["Language servers<br/>Astro, TS/JS, Go, Python, web, Lua,<br/>Markdown, TOML, YAML, JSON, shell,<br/>PowerShell, and SQL"]
+  MASON --> LINTERS["Linters<br/>Oxlint and Ruff"]
+  MASON --> TSCLI["tree-sitter-cli"]
+
+  TREESITTER --> PARSERS["Treesitter parsers<br/>Configured languages and file types"]
+  POLISH --> TSCLI
+  TSCLI --> PARSERS
+
+  MARKDOWN --> TREESITTER
+  MARKDOWN --> ICONS["mini.icons"]
+  PREVIEW --> SNACKS["snacks.nvim picker"]
+  PREVIEW --> BROWSER["Browser<br/>Live Markdown and Mermaid rendering"]
 ```
 
-#### Create a new user repository from this template
+## Markdown preview
 
-Press the "Use this template" button above to create a new repository to store your user configuration.
+Open a Markdown file and start its live browser preview:
 
-You can also just clone this repository directly if you do not want to track your user configuration in GitHub.
-
-#### Clone the repository
-
-```shell
-git clone https://github.com/<your_user>/<your_repository> ~/.config/nvim
+```vim
+:LivePreview start
 ```
 
-#### Start Neovim
+The preview updates while you type and renders fenced `mermaid` diagrams. Stop the preview server with:
 
-```shell
-nvim
+```vim
+:LivePreview close
 ```
+
+Check the integration with `:checkhealth livepreview`.
+
+## Maintenance
+
+Run these commands inside Neovim:
+
+```vim
+:Lazy sync
+:Mason
+:TSUpdate
+:checkhealth
+```
+
+Plugins are pinned in `lazy-lock.json` for reproducible installations.
