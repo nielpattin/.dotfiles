@@ -16,14 +16,14 @@ In pwsh, run the following to install tools with winget. This will be faster tha
 winget install --id Git.Git -e -i
 winget install --id GitHub.cli -e
 
-winget install --id BurntSushi.ripgrep.MSVC -e
+# winget install --id BurntSushi.ripgrep.MSVC -e
 winget install --id junegunn.fzf -e
-winget install --id  sharkdp.fd -e
-winget install --id BtbN.FFmpeg.GPL.8.0 -e
+# winget install --id  sharkdp.fd -e
+# winget install --id BtbN.FFmpeg.GPL.8.0 -e
 winget install --id Microsoft.PowerShell -e
 
 winget install --id Starship.Starship -e
-winget install --id eza-community.eza -e
+# winget install --id eza-community.eza -e
 winget install --id Microsoft.PowerToys -e
 
 winget install --id Microsoft.WindowsTerminal -e
@@ -31,8 +31,11 @@ winget install --id ShareX.ShareX -e
 winget install --id Microsoft.VisualStudioCode -e
 winget install --id DuongDieuPhap.ImageGlass -e
 
-winget install --id OpenJS.NodeJS.LTS -e -i
-winget install --id Oven-sh.Bun -e
+# Windows Coreutils (for `ls`, `cat`, etc.)
+winget install --id Microsoft.Coreutils -e
+
+# winget install --id OpenJS.NodeJS.LTS -e -i
+# winget install --id Oven-sh.Bun -e
 winget install --id GoLang.Go -e
 
 # Optional, for me:
@@ -54,18 +57,18 @@ Then open a new terminal.
 ## Sync the home to the dotfiles repo
 
  ```bash
-   python "$HOME/.dotfiles/scripts/sync_from_home.py"
+   python "$HOME/.dotfiles/sync_from_home.py"
  ```
 
  Dry run:
 
  ```bash
-   python "$HOME/.dotfiles/scripts/sync_from_home.py" --dry-run
+   python "$HOME/.dotfiles/sync_from_home.py" --dry-run
  ```
 
  Useful flags:
 
  ```bash
-   python "$HOME/.dotfiles/scripts/sync_from_home.py" --no-prune
-   python "$HOME/.dotfiles/scripts/sync_from_home.py" --strict-missing
+   python "$HOME/.dotfiles/sync_from_home.py" --no-prune
+   python "$HOME/.dotfiles/sync_from_home.py" --strict-missing
  ```

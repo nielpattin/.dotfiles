@@ -1,28 +1,11 @@
+if true then return {} end -- WARN: REMOVE THIS LINE TO ACTIVATE THIS FILE
+
 -- You can also add or configure plugins by creating files in this `plugins/` folder
 -- PLEASE REMOVE THE EXAMPLES YOU HAVE NO INTEREST IN BEFORE ENABLING THIS FILE
 -- Here are some examples:
 
 ---@type LazySpec
 return {
-
-  -- == OpenCode AI Integration ==
-  {
-    "NickvanDyke/opencode.nvim",
-    event = "User AstroFile",
-    dependencies = {
-      "folke/snacks.nvim",
-    },
-    config = function()
-      ---@type opencode.Opts
-      vim.g.opencode_opts = {
-        -- Your configuration here (optional)
-        -- See all options: https://github.com/nickjvandyke/opencode.nvim/blob/main/lua/opencode/config.lua
-      }
-
-      -- Required for buffer auto-reload when opencode edits files
-      vim.o.autoread = true
-    end,
-  },
 
   -- == Examples of Adding Plugins ==
 
@@ -66,10 +49,12 @@ return {
   {
     "L3MON4D3/LuaSnip",
     config = function(plugin, opts)
-      require "astronvim.plugins.configs.luasnip"(plugin, opts) -- include the default astronvim config that calls the setup call
       -- add more custom luasnip configuration such as filetype extend or custom snippets
       local luasnip = require "luasnip"
       luasnip.filetype_extend("javascript", { "javascriptreact" })
+
+      -- include the default astronvim config that calls the setup call
+      require "astronvim.plugins.configs.luasnip"(plugin, opts)
     end,
   },
 
@@ -86,7 +71,7 @@ return {
           Rule("$", "$", { "tex", "latex" })
             -- don't add a pair if the next character is %
             :with_pair(cond.not_after_regex "%%")
-            -- don't add a pair if the  previous character is xxx
+            -- don't add a pair if  the previous character is xxx
             :with_pair(
               cond.not_before_regex("xxx", 3)
             )

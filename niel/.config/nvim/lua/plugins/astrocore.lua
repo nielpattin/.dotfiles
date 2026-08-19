@@ -1,3 +1,5 @@
+if true then return {} end -- WARN: REMOVE THIS LINE TO ACTIVATE THIS FILE
+
 -- AstroCore provides a central place to modify mappings, vim options, autocommands, and more!
 -- Configuration documentation can be found with `:h astrocore`
 -- NOTE: We highly recommend setting up the Lua Language Server (`:LspInstall lua_ls`)
@@ -71,45 +73,12 @@ return {
           desc = "Close buffer from tabline",
         },
 
-        -- OpenCode AI keymaps
-        ["<Leader>o"] = { desc = "OpenCode AI" },
-        ["<Leader>oa"] = { function() require("opencode").ask("@this: ", { submit = true }) end, desc = "Ask opencode" },
-        ["<Leader>os"] = { function() require("opencode").select() end, desc = "Select opencode action" },
-        ["<Leader>ot"] = { function() require("opencode").toggle() end, desc = "Toggle opencode" },
-        ["<S-C-u>"] = { function() require("opencode").command("session.half.page.up") end, desc = "Scroll opencode up" },
-        ["<S-C-d>"] = { function() require("opencode").command("session.half.page.down") end, desc = "Scroll opencode down" },
-
         -- tables with just a `desc` key will be registered with which-key if it's installed
         -- this is useful for naming menus
         -- ["<Leader>b"] = { desc = "Buffers" },
 
         -- setting a mapping to false will disable it
         -- ["<C-S>"] = false,
-
-        -- Disable arrow keys - use hjkl!
-        ["<Left>"] = { function() vim.api.nvim_echo({ { "← Use h instead!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-        ["<Right>"] = { function() vim.api.nvim_echo({ { "→ Use l instead!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-        ["<Up>"] = { function() vim.api.nvim_echo({ { "↑ Use k instead!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-        ["<Down>"] = { function() vim.api.nvim_echo({ { "↓ Use j instead!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-      },
-      x = {
-        -- Visual mode OpenCode keymaps
-        ["<Leader>o"] = { desc = "OpenCode AI" },
-        ["<Leader>oa"] = { function() require("opencode").ask("@this: ", { submit = true }) end, desc = "Ask opencode (selection)" },
-        ["<Leader>os"] = { function() require("opencode").select() end, desc = "Select opencode action" },
-
-        -- Disable arrow keys in visual mode
-        ["<Left>"] = { function() vim.api.nvim_echo({ { "← Use h instead!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-        ["<Right>"] = { function() vim.api.nvim_echo({ { "→ Use l instead!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-        ["<Up>"] = { function() vim.api.nvim_echo({ { "↑ Use k instead!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-        ["<Down>"] = { function() vim.api.nvim_echo({ { "↓ Use j instead!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-      },
-      i = {
-        -- Disable arrow keys in insert mode
-        ["<Left>"] = { function() vim.api.nvim_echo({ { "← Exit insert mode and use h!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-        ["<Right>"] = { function() vim.api.nvim_echo({ { "→ Exit insert mode and use l!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-        ["<Up>"] = { function() vim.api.nvim_echo({ { "↑ Exit insert mode and use k!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
-        ["<Down>"] = { function() vim.api.nvim_echo({ { "↓ Exit insert mode and use j!", "WarningMsg" } }, false, {}) end, desc = "No arrow keys!" },
       },
     },
   },
